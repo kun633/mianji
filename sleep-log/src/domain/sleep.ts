@@ -34,7 +34,8 @@ export function finishSegment(segment: SleepSegment, now: string, timezone: stri
 
 export function undoFinish(segment: SleepSegment, now: string): SleepSegment {
   if (!segment.finishedAt || segment.status !== 'completed') throw new Error('segment cannot be undone');
-  if (Date.parse(now) - Date.parse(segment.finishedAt) > 60_000) throw new Error('undo window expired');
+  const elapsed = Date.parse(now) - Date.parse(segment.finishedAt);
+  if (!Number.isFinite(elapsed) || elapsed < 0 || elapsed > 60_000) throw new Error('undo window expired');
   return { ...segment, endAt: null, endTimezone: null, status: 'active', finishedAt: null, updatedAt: now };
 }
 

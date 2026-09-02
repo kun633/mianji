@@ -15,11 +15,24 @@ describe('sleep state transitions', () => {
     expect(() => resetStart(finishSegment(reset, '2026-09-02T22:08:00.000Z', 'Asia/Shanghai'), '2026-09-02T15:10:00.000Z', 'Asia/Shanghai')).toThrow('completed timestamps are immutable');
   });
 
-  it('allows undo for 60 seconds and rejects it afterwards', () => {
+  it('allows undo at zero seconds and exactly 60 seconds', () => {
     const active = createSegment({ id: 'seg-1', kind: 'night', groupId: 'night-1', now: '2026-09-02T15:00:00.000Z', timezone: 'Asia/Shanghai' });
     const done = finishSegment(active, '2026-09-02T22:00:00.000Z', 'Asia/Shanghai');
-    expect(undoFinish(done, '2026-09-02T22:00:59.000Z').status).toBe('active');
-    expect(() => undoFinish(done, '2026-09-02T22:01:01.000Z')).toThrow('undo window expired');
+    expect(undoFinish(done, '2026-09-02T22:00:00.000Z').status).toBe('active');
+    expect(undoFinish(done, '2026-09-02T22:01:00.000Z').status).toBe('active');
+  });
+
+  it('rejects undo before finish and after 60 seconds', () => {
+    const active = createSegment({ id: 'seg-1', kind: 'night', groupId: 'night-1', now: '2026-09-02T15:00:00.000Z', timezone: 'Asia/Shanghai' });
+    const done = finishSegment(active, '2026-09-02T22:00:00.000Z', 'Asia/Shanghai');
+    expect(() => undoFinish(done, '2026-09-02T21:59:59.999Z')).toThrow('undo window expired');
+    expect(() => undoFinish(done, '2026-09-02T22:01:00.001Z')).toThrow('undo window expired');
+  });
+
+  it('rejects undo when elapsed time is not finite', () => {
+    const active = createSegment({ id: 'seg-1', kind: 'night', groupId: 'night-1', now: '2026-09-02T15:00:00.000Z', timezone: 'Asia/Shanghai' });
+    const done = finishSegment(active, '2026-09-02T22:00:00.000Z', 'Asia/Shanghai');
+    expect(() => undoFinish(done, 'not-a-timestamp')).toThrow('undo window expired');
   });
 
   it('keeps uncertain data visible but calculates its raw duration', () => {
