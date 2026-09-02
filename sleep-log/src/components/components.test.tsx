@@ -360,3 +360,26 @@ describe('SettingsPage', () => {
     expect(actions.exportCsv).toHaveBeenCalledOnce();
   });
 });
+
+import { UpdateNotice } from './UpdateNotice';
+
+describe('UpdateNotice', () => {
+  afterEach(() => cleanup());
+
+  const activeNight = makeSegment({ endAt: null, finishedAt: null, status: 'active' });
+
+  it('defers a waiting update while sleep is active', () => {
+    const applyUpdate = vi.fn();
+    render(<UpdateNotice needRefresh activeSegment={activeNight} applyUpdate={applyUpdate} />);
+    expect(screen.getByText('记录结束后可更新')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '立即更新' })).not.toBeInTheDocument();
+  });
+
+  it('shows update action when no active sleep segment', () => {
+    const applyUpdate = vi.fn();
+    render(<UpdateNotice needRefresh activeSegment={null} applyUpdate={applyUpdate} />);
+    expect(screen.getByRole('button', { name: '立即更新' })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '立即更新' }));
+    expect(applyUpdate).toHaveBeenCalledOnce();
+  });
+});

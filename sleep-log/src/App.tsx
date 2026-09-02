@@ -16,6 +16,8 @@ import { SleepService } from './services/sleep-service';
 import { TodayPage, type TodayActions, type TodayModel } from './components/TodayPage';
 import { HistoryPage, type HistoryActions } from './components/HistoryPage';
 import { SettingsPage, type SettingsActions, type SettingsModel } from './components/SettingsPage';
+import { UpdateNotice } from './components/UpdateNotice';
+import { registerAppServiceWorker } from './pwa/register';
 
 const timezone = () => Intl.DateTimeFormat().resolvedOptions().timeZone || 'Asia/Shanghai';
 const clock = { nowIso: () => new Date().toISOString(), timezone };
@@ -93,7 +95,14 @@ export default function App() {
   });
   const [capability, setCapability] = useState<BackupCapability>('manual-only');
   const [isPersistent, setIsPersistent] = useState<boolean>(false);
+  const [needRefresh, setNeedRefresh] = useState(false);
+  const [updateSW, setUpdateSW] = useState<(() => Promise<void>) | null>(null);
   const [tick, setTick] = useState(0);
+
+  useEffect(() => {
+    const updateFn = registerAppServiceWorker(() => setNeedRefresh(true));
+    setUpdateSW(() => updateFn);
+  }, []);
 
   const refreshData = async () => {
     const list = await repository.list();
@@ -237,6 +246,7 @@ export default function App() {
   };
 
   const currentTodayDate = displayDate(clock.nowIso(), clock.timezone());
+  const activeSegment = model?.state === 'active' ? model.segment : null;
 
   const settingsModel: SettingsModel = {
     capability,
@@ -255,6 +265,11 @@ export default function App() {
 
   return (
     <div className="app-shell">
+      <UpdateNotice
+        needRefresh={needRefresh}
+        activeSegment={activeSegment}
+        applyUpdate={() => void updateSW?.()}
+      />
       <div className="app-content">
         {tab === 'today' && <TodayPage model={model} actions={todayActions} />}
         {tab === 'history' && (
