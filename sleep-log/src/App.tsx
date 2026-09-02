@@ -11,10 +11,10 @@ const clock = { nowIso: () => new Date().toISOString(), timezone };
 type TodayService = Pick<SleepService, 'getActive' | 'isOverlong'>;
 
 export function buildFinishedModel(segments: SleepSegment[], now = Date.now()): TodayModel {
-  const completed = segments.filter((segment) => segment.status === 'completed' && segment.endAt && segment.finishedAt);
-  const latest = [...completed].sort((left, right) => Date.parse(right.finishedAt!) - Date.parse(left.finishedAt!))[0];
+  const finished = segments.filter((segment) => (segment.status === 'completed' || segment.status === 'uncertain') && segment.endAt && segment.finishedAt);
+  const latest = [...finished].sort((left, right) => Date.parse(right.finishedAt!) - Date.parse(left.finishedAt!))[0];
   if (!latest) return { state: 'idle', lastNightMs: null, backupWarning: null };
-  const groupSegments = completed
+  const groupSegments = finished
     .filter((segment) => latest.groupId ? segment.groupId === latest.groupId : segment.id === latest.id)
     .sort((left, right) => Date.parse(left.startAt) - Date.parse(right.startAt));
   return {

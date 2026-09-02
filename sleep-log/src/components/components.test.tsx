@@ -149,4 +149,24 @@ describe('TodayPage', () => {
       expect(model.undoUntil).toBe('2026-09-03T07:31:00.000Z');
     }
   });
+
+  it('restores an uncertain overlong record as finished after refresh', async () => {
+    const uncertain = makeSegment({
+      id: 'overlong',
+      status: 'uncertain',
+      uncertainReason: 'over-20-hours',
+      endAt: '2026-09-03T07:30:00.000Z',
+      finishedAt: '2026-09-03T07:30:00.000Z',
+      updatedAt: '2026-09-03T07:30:00.000Z',
+    });
+    const service = { getActive: vi.fn().mockResolvedValue(undefined), isOverlong: vi.fn().mockReturnValue(false) };
+    const repository = { list: vi.fn().mockResolvedValue([uncertain]) };
+    const model = await loadTodayModel(service, repository, Date.parse('2026-09-03T07:30:30.000Z'));
+    expect(model.state).toBe('finished');
+    if (model.state === 'finished') {
+      expect(model.segment.status).toBe('uncertain');
+      expect(model.groupSegments).toHaveLength(1);
+      expect(model.undoUntil).toBe('2026-09-03T07:31:00.000Z');
+    }
+  });
 });
