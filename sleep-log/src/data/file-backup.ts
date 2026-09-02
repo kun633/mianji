@@ -39,8 +39,11 @@ export async function deleteBackupSettingsDatabase() { await deleteDB(DB_NAME); 
 
 export class BrowserFileBackup {
   constructor(private browser: Window) {}
-  capability(): BackupCapability { return 'showDirectoryPicker' in this.browser ? 'folder-auto' : 'manual-only'; }
-  async chooseFolder() { return this.browser.showDirectoryPicker({ mode: 'readwrite' }); }
+  capability(): BackupCapability { return typeof this.browser.showDirectoryPicker === 'function' ? 'folder-auto' : 'manual-only'; }
+  async chooseFolder(): Promise<FileSystemDirectoryHandle> {
+    if (typeof this.browser.showDirectoryPicker !== 'function') throw new Error('目录备份不可用');
+    return this.browser.showDirectoryPicker({ mode: 'readwrite' });
+  }
   async writeTo(handle: FileSystemDirectoryHandle, text: string): Promise<void> {
     let writable: FileSystemWritableFileStream | undefined;
     try {

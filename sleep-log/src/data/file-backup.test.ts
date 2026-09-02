@@ -13,6 +13,14 @@ describe('browser file backup', () => {
     expect(new BrowserFileBackup(window).capability()).toBe('manual-only');
   });
 
+  it('requires a callable directory picker and does not call a non-function', async () => {
+    Object.defineProperty(window, 'showDirectoryPicker', { configurable: true, value: 'not-a-function' });
+    const adapter = new BrowserFileBackup(window);
+    expect(adapter.capability()).toBe('manual-only');
+    await expect(adapter.chooseFolder()).rejects.toThrow('目录备份不可用');
+    Reflect.deleteProperty(window, 'showDirectoryPicker');
+  });
+
   it('does not lose local data when external writing fails', async () => {
     const failingHandle = {
       getFileHandle: async () => ({

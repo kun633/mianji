@@ -22,3 +22,13 @@
 以上 Task 4 文件与本报告将以一次提交完成，提交信息为：
 
 `feat: add resilient sleep data backups`
+
+## 审查修复
+
+- 无 ID 指纹现在覆盖除 `id` 外的全部 `SleepSegment` 字段；同 ID 记录使用固定字段顺序比较，避免 JSON 键顺序造成误判。
+- 新增 `shouldRemindManualBackup(lastSuccessfulBackupAt, nowMs, days = 30)`；无成功备份、无效时间或超过提醒周期时返回 `true`。
+- 目录能力检测改为 `typeof ... === 'function'`，目录选择器不可用时安全抛出明确错误。
+- JSON 恢复严格校验所有必需字段、有效 ISO 时间、枚举值及未知字段。
+- 新增上述审查项的回归测试；外部备份异常仍被触发器隔离，不影响本地保存。
+
+修复后验证：Task 4 测试 13/13 通过；全套测试 36/36 通过；`npm run build` 通过。

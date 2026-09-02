@@ -11,21 +11,29 @@ const kinds: SleepKind[] = ['night', 'nap'];
 const statuses: SleepStatus[] = ['active', 'completed', 'uncertain', 'invalid'];
 const isString = (value: unknown): value is string => typeof value === 'string';
 const isNullableString = (value: unknown): value is string | null => value === null || isString(value);
+const segmentFields = ['id', 'kind', 'groupId', 'startAt', 'startTimezone', 'endAt', 'endTimezone', 'status', 'uncertainReason', 'createdAt', 'updatedAt', 'finishedAt', 'schemaVersion'] as const;
+const isoTime = (value: unknown): value is string => isString(value)
+  && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{3})?(?:Z|[+-]\d{2}:\d{2})$/.test(value)
+  && Number.isFinite(Date.parse(value));
+const sameKeys = (value: Record<string, unknown>, allowed: readonly string[]) => {
+  const keys = Object.keys(value).sort();
+  return keys.length === allowed.length && keys.every((key, index) => key === [...allowed].sort()[index]);
+};
 
 function isSleepSegment(value: unknown): value is SleepSegment {
   if (!value || typeof value !== 'object') return false;
   const item = value as Record<string, unknown>;
-  return isString(item.id) && kinds.includes(item.kind as SleepKind) && isNullableString(item.groupId)
-    && isString(item.startAt) && isString(item.startTimezone) && isNullableString(item.endAt)
-    && isNullableString(item.endTimezone) && statuses.includes(item.status as SleepStatus)
-    && isNullableString(item.uncertainReason) && isString(item.createdAt) && isString(item.updatedAt)
-    && isNullableString(item.finishedAt) && item.schemaVersion === 1;
+  return sameKeys(item, segmentFields) && isString(item.id) && kinds.includes(item.kind as SleepKind) && isNullableString(item.groupId)
+    && isoTime(item.startAt) && isString(item.startTimezone) && (item.endAt === null || isoTime(item.endAt))
+    && (item.endTimezone === null || isString(item.endTimezone)) && statuses.includes(item.status as SleepStatus)
+    && isNullableString(item.uncertainReason) && isoTime(item.createdAt) && isoTime(item.updatedAt)
+    && (item.finishedAt === null || isoTime(item.finishedAt)) && item.schemaVersion === 1;
 }
 
 function isSleepBackup(value: unknown): value is SleepBackup {
   if (!value || typeof value !== 'object') return false;
   const item = value as Record<string, unknown>;
-  return item.app === '眠记' && item.version === 1 && isString(item.exportedAt)
+  return sameKeys(item, ['app', 'version', 'exportedAt', 'segments']) && item.app === '眠记' && item.version === 1 && isoTime(item.exportedAt)
     && Array.isArray(item.segments) && item.segments.every(isSleepSegment);
 }
 
@@ -39,10 +47,12 @@ export function parseBackup(text: string): SleepBackup {
   }
 }
 
-const fingerprint = (segment: SleepSegment) => JSON.stringify({
-  kind: segment.kind, groupId: segment.groupId, startAt: segment.startAt,
-  endAt: segment.endAt, status: segment.status, uncertainReason: segment.uncertainReason,
-});
+const fieldsWithoutId = segmentFields.filter((field) => field !== 'id');
+const stableSegmentValue = (segment: SleepSegment, fields: readonly string[]) => fields
+  .map((field) => [field, segment[field as keyof SleepSegment]] as const);
+const fingerprint = (segment: SleepSegment) => JSON.stringify(stableSegmentValue(segment, fieldsWithoutId));
+const sameSegment = (left: SleepSegment, right: SleepSegment) => stableSegmentValue(left, segmentFields)
+  .every(([field, value], index) => value === stableSegmentValue(right, segmentFields)[index][1]);
 
 export function mergeBackup(current: SleepSegment[], incoming: SleepSegment[]) {
   const map = new Map(current.map((segment) => [segment.id, segment]));
@@ -50,7 +60,7 @@ export function mergeBackup(current: SleepSegment[], incoming: SleepSegment[]) {
   const conflicts: MergeConflict[] = [];
   for (const segment of incoming) {
     const existing = map.get(segment.id);
-    if (existing && JSON.stringify(existing) !== JSON.stringify(segment)) {
+    if (existing && !sameSegment(existing, segment)) {
       conflicts.push({ current: existing, incoming: segment });
     } else if (!existing && !seen.has(fingerprint(segment))) {
       map.set(segment.id, segment);
@@ -58,6 +68,12 @@ export function mergeBackup(current: SleepSegment[], incoming: SleepSegment[]) {
     }
   }
   return { merged: [...map.values()].sort((a, b) => a.startAt.localeCompare(b.startAt)), conflicts };
+}
+
+export function shouldRemindManualBackup(lastSuccessfulBackupAt: string | null, nowMs: number, days = 30): boolean {
+  if (!lastSuccessfulBackupAt) return true;
+  const lastMs = Date.parse(lastSuccessfulBackupAt);
+  return !Number.isFinite(lastMs) || !Number.isFinite(nowMs) || nowMs - lastMs >= days * 24 * 60 * 60 * 1000;
 }
 
 function csvField(value: string | number | null): string {
