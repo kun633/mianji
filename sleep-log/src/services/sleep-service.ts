@@ -8,7 +8,7 @@ import {
   type SleepKind,
   type SleepSegment,
 } from '../domain/sleep';
-import { displayDate } from '../domain/stats';
+import { groupSleepSegments } from '../domain/stats';
 
 export interface Clock {
   nowIso(): string;
@@ -32,7 +32,6 @@ export class SleepService {
   }
 
   async start(kind: SleepKind, groupId: string | null = null) {
-    if (await this.repo.getActive()) throw new Error('已有正在记录的睡眠');
     const now = this.clock.nowIso();
     const segment = createSegment({
       id: this.newId(),
@@ -41,7 +40,7 @@ export class SleepService {
       now,
       timezone: this.clock.timezone(),
     });
-    await this.repo.save(segment);
+    if (!await this.repo.createActiveIfNone(segment)) throw new Error('已有正在记录的睡眠');
     await this.triggerBackup();
     return segment;
   }
@@ -88,18 +87,17 @@ export class SleepService {
     const current = await this.requireById(id);
     if (current.status === 'active') throw new Error('记录中不能修改睡眠类型');
     const all = await this.repo.list();
-    const sameWakeDateNight = all.find((item) => (
-      item.id !== id
-      && item.kind === 'night'
-      && item.endAt
-      && current.endAt
-      && displayDate(item.endAt, item.endTimezone ?? item.startTimezone)
-        === displayDate(current.endAt, current.endTimezone ?? current.startTimezone)
-    ));
+    const currentDate = current.endAt
+      ? groupSleepSegments([current])[0]?.date
+      : null;
+    const sameWakeDateNight = currentDate
+      ? groupSleepSegments(all.filter((item) => item.id !== id))
+        .find((group) => group.kind === 'night' && group.date === currentDate)
+      : undefined;
     const changed = {
       ...current,
       kind,
-      groupId: kind === 'nap' ? null : sameWakeDateNight?.groupId ?? this.newId(),
+      groupId: kind === 'nap' ? null : sameWakeDateNight?.segments[0]?.groupId ?? this.newId(),
       updatedAt: this.clock.nowIso(),
     };
     await this.repo.save(changed);

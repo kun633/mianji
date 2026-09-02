@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { createSegment } from '../domain/sleep';
 import {
   AutoBackupTrigger, BrowserFileBackup, IndexedDbBackupSettingsRepository,
+  replaceBackupDirectory,
   deleteBackupSettingsDatabase, type BackupStatus,
 } from './file-backup';
 
@@ -29,6 +30,26 @@ describe('browser file backup', () => {
     } as unknown as FileSystemDirectoryHandle;
     const adapter = new BrowserFileBackup(window);
     await expect(adapter.writeTo(failingHandle, '{"version":1}')).rejects.toThrow('自动备份写入失败');
+  });
+
+  it('keeps the previous directory until the replacement folder accepts a backup write', async () => {
+    const previous = {} as FileSystemDirectoryHandle;
+    const candidate = {
+      getFileHandle: async () => ({
+        createWritable: async () => ({ write: async () => { throw new Error('disk full'); }, abort: async () => undefined }),
+      }),
+    } as unknown as FileSystemDirectoryHandle;
+    const settings: import('./file-backup').BackupSettingsRepository = {
+      getDirectory: async () => previous,
+      setDirectory: async () => { throw new Error('should not replace'); },
+      getStatus: async () => ({ state: 'ready', lastSuccessfulBackupAt: null, message: null }),
+      setStatus: async () => undefined,
+    };
+    const files = new BrowserFileBackup(window);
+
+    await expect(replaceBackupDirectory(settings, files, candidate, '{"app":"眠记"}'))
+      .rejects.toThrow('自动备份写入失败');
+    expect(await settings.getDirectory()).toBe(previous);
   });
 
   it('stores directory handles and status in a separate settings store', async () => {

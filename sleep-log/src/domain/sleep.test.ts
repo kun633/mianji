@@ -88,4 +88,25 @@ describe('sleep statistics', () => {
     expect(result.averageNapMs).toBe(3_600_000);
     expect(result.averageTotalMs).toBe(45_900_000);
   });
+
+  it('groups a split night on the final segment wake date across midnight', () => {
+    const segments = [
+      completed('early', 'night', 'split-night', '2026-09-01T13:00:00.000Z', '2026-09-01T15:30:00.000Z'),
+      completed('final', 'night', 'split-night', '2026-09-01T17:00:00.000Z', '2026-09-01T22:00:00.000Z'),
+    ];
+
+    const result = buildStats(segments, 7, '2026-09-02', 'Asia/Shanghai');
+
+    expect(result.days).toEqual([{ date: '2026-09-02', nightMs: 27_000_000, napMs: 0, totalMs: 27_000_000 }]);
+  });
+
+  it('excludes invalid negative durations instead of subtracting from totals', () => {
+    const valid = completed('valid', 'night', 'night-with-invalid', '2026-09-01T14:00:00.000Z', '2026-09-01T16:00:00.000Z');
+    const invalid = { ...completed('invalid', 'night', 'night-with-invalid', '2026-09-01T18:00:00.000Z', '2026-09-01T17:00:00.000Z'), status: 'invalid' as const };
+
+    const result = buildStats([valid, invalid], 7, '2026-09-02', 'Asia/Shanghai');
+
+    expect(result.days).toEqual([{ date: '2026-09-02', nightMs: 7_200_000, napMs: 0, totalMs: 7_200_000 }]);
+    expect(result.excludedCount).toBe(1);
+  });
 });

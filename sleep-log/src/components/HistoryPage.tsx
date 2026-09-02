@@ -1,6 +1,6 @@
-﻿import { useMemo, useState } from 'react';
+﻿import { useMemo, useRef, useState, useEffect } from 'react';
 import type { SleepKind, SleepSegment } from '../domain/sleep';
-import { buildStats, displayDate } from '../domain/stats';
+import { buildStats, formatDuration, groupSleepSegments, type SleepGroup } from '../domain/stats';
 
 export interface HistoryActions {
   changeKind(id: string, kind: SleepKind): Promise<void>;
@@ -14,18 +14,9 @@ export interface HistoryPageProps {
   actions: HistoryActions;
 }
 
-const formatDuration = (milliseconds: number | null) => {
-  if (milliseconds === null || milliseconds === undefined) return '0分';
-  const minutes = Math.max(0, Math.round(milliseconds / 60_000));
-  const hours = Math.floor(minutes / 60);
-  const remainingMinutes = minutes % 60;
-  if (hours === 0) return `${remainingMinutes}分`;
-  return `${hours}小时${remainingMinutes}分`;
-};
-
-const formatTime = (value: string | null) => {
+const formatTime = (value: string | null, timezone?: string) => {
   if (!value) return '未知时间';
-  return new Intl.DateTimeFormat('zh-CN', { hour: '2-digit', minute: '2-digit' }).format(new Date(value));
+  return new Intl.DateTimeFormat('zh-CN', { hour: '2-digit', minute: '2-digit', timeZone: timezone }).format(new Date(value));
 };
 
 function ConfirmDeleteDialog({
@@ -39,9 +30,46 @@ function ConfirmDeleteDialog({
   onConfirm: () => void;
   onCancel: () => void;
 }) {
+  const dialogRef = useRef<HTMLElement>(null);
+  const openerRef = useRef<HTMLElement | null>(null);
+
+  useEffect(() => {
+    openerRef.current = document.activeElement as HTMLElement | null;
+    const cancelBtn = dialogRef.current?.querySelector<HTMLButtonElement>('button');
+    cancelBtn?.focus();
+    return () => openerRef.current?.focus();
+  }, []);
+
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'Escape') {
+      e.preventDefault();
+      onCancel();
+    }
+    if (e.key === 'Tab' && dialogRef.current) {
+      const buttons = dialogRef.current.querySelectorAll<HTMLButtonElement>('button');
+      if (buttons.length === 0) return;
+      const first = buttons[0];
+      const last = buttons[buttons.length - 1];
+      if (e.shiftKey && document.activeElement === first) {
+        e.preventDefault();
+        last.focus();
+      } else if (!e.shiftKey && document.activeElement === last) {
+        e.preventDefault();
+        first.focus();
+      }
+    }
+  };
+
   return (
     <div className="modal-backdrop" role="presentation">
-      <section className="dialog" role="dialog" aria-modal="true" aria-labelledby="delete-dialog-title">
+      <section
+        ref={dialogRef}
+        className="dialog"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="delete-dialog-title"
+        onKeyDown={handleKeyDown}
+      >
         <h2 id="delete-dialog-title">{title}</h2>
         <p>{body}</p>
         <div className="dialog-actions">
@@ -60,6 +88,7 @@ function ConfirmDeleteDialog({
 export function HistoryPage({ segments, today, timezone, actions }: HistoryPageProps) {
   const [rangeDays, setRangeDays] = useState<7 | 30>(7);
   const [deletingSegment, setDeletingSegment] = useState<SleepSegment | null>(null);
+  const deleteTriggerRef = useRef<HTMLButtonElement | null>(null);
 
   const stats = useMemo(
     () => buildStats(segments, rangeDays, today, timezone),
@@ -72,19 +101,17 @@ export function HistoryPage({ segments, today, timezone, actions }: HistoryPageP
       .sort((a, b) => Date.parse(b.startAt) - Date.parse(a.startAt));
   }, [segments]);
 
-  // Group finished segments by wake/display date
+  // Group all finished segments using groupSleepSegments so midnight-crossing nights are unified under the wake date
   const groupedByDate = useMemo(() => {
-    const map = new Map<string, SleepSegment[]>();
-    for (const segment of finishedSegments) {
-      const dateKey = segment.endAt
-        ? displayDate(segment.endAt, segment.endTimezone ?? timezone)
-        : displayDate(segment.startAt, segment.startTimezone ?? timezone);
-      const list = map.get(dateKey) ?? [];
-      list.push(segment);
-      map.set(dateKey, list);
+    const groups = groupSleepSegments(finishedSegments);
+    const map = new Map<string, SleepGroup[]>();
+    for (const group of groups) {
+      const list = map.get(group.date) ?? [];
+      list.push(group);
+      map.set(group.date, list);
     }
     return Array.from(map.entries()).sort((a, b) => b[0].localeCompare(a[0]));
-  }, [finishedSegments, timezone]);
+  }, [finishedSegments]);
 
   const maxTotalMs = useMemo(() => {
     return Math.max(...stats.days.map((d) => d.totalMs), 8 * 3600 * 1000);
@@ -172,50 +199,41 @@ export function HistoryPage({ segments, today, timezone, actions }: HistoryPageP
           {groupedByDate.length === 0 ? (
             <p className="empty-history-text">暂无历史睡眠记录</p>
           ) : (
-            groupedByDate.map(([date, dateSegments]) => {
-              const nightGroups = new Map<string, SleepSegment[]>();
-              const naps: SleepSegment[] = [];
-
-              for (const seg of dateSegments) {
-                if (seg.kind === 'night') {
-                  const gId = seg.groupId ?? seg.id;
-                  const list = nightGroups.get(gId) ?? [];
-                  list.push(seg);
-                  nightGroups.set(gId, list);
-                } else {
-                  naps.push(seg);
-                }
-              }
+            groupedByDate.map(([date, dateGroups]) => {
+              const dayNightMs = dateGroups.filter((g) => g.kind === 'night').reduce((sum, g) => sum + g.totalMs, 0);
+              const dayNapMs = dateGroups.filter((g) => g.kind === 'nap').reduce((sum, g) => sum + g.totalMs, 0);
 
               return (
                 <div key={date} className="history-day-card">
                   <h3 className="history-date-title">{date}</h3>
+                  <p className="day-total-summary">夜间 {formatDuration(dayNightMs)} · 午睡 {formatDuration(dayNapMs)} · 全天 {formatDuration(dayNightMs + dayNapMs)}</p>
 
-                  {/* Night sleep groups */}
-                  {Array.from(nightGroups.entries()).map(([gId, groupList]) => {
-                    const groupTotalMs = groupList.reduce(
-                      (acc, s) => acc + (s.endAt ? Date.parse(s.endAt) - Date.parse(s.startAt) : 0),
-                      0
-                    );
-                    const isMulti = groupList.length > 1;
+                  {dateGroups.map((group) => {
+                    const isNight = group.kind === 'night';
+                    const isMulti = group.segments.length > 1;
 
                     return (
-                      <div key={gId} className="history-record-group night-record">
+                      <div key={group.key} className={`history-record-group ${isNight ? 'night-record' : 'nap-record'}`}>
                         <div className="group-header">
-                          <span className="record-badge night-badge">夜间睡眠</span>
-                          <strong className="group-duration">{formatDuration(groupTotalMs)}</strong>
-                          {isMulti && <span className="multi-badge">{groupList.length} 段合计</span>}
+                          <span className={`record-badge ${isNight ? 'night-badge' : 'nap-badge'}`}>
+                            {isNight ? '夜间睡眠' : '午睡'}
+                          </span>
+                          <strong className="group-duration">{formatDuration(group.totalMs)}</strong>
+                          {isMulti && <span className="multi-badge">{group.segments.length} 段合计</span>}
                         </div>
 
                         <div className="group-segments">
-                          {groupList.map((seg) => {
-                            const segMs = seg.endAt ? Date.parse(seg.endAt) - Date.parse(seg.startAt) : 0;
+                          {group.segments.map((seg) => {
+                            const segMs = seg.status === 'completed' && seg.endAt
+                              ? Math.max(0, Date.parse(seg.endAt) - Date.parse(seg.startAt))
+                              : 0;
                             const isUncertain = seg.status === 'uncertain';
+                            const isInvalid = seg.status === 'invalid';
                             return (
                               <div key={seg.id} className="segment-row">
                                 <div className="segment-info">
                                   <span className="segment-time">
-                                    {formatTime(seg.startAt)} — {formatTime(seg.endAt)}
+                                    {formatTime(seg.startAt, seg.startTimezone)} — {formatTime(seg.endAt, seg.endTimezone ?? seg.startTimezone)}
                                   </span>
                                   <span className="segment-duration">({formatDuration(segMs)})</span>
                                   {isUncertain && (
@@ -223,19 +241,23 @@ export function HistoryPage({ segments, today, timezone, actions }: HistoryPageP
                                       时间可能不准确
                                     </span>
                                   )}
+                                  {isInvalid && <span className="uncertain-tag">时间无效</span>}
                                 </div>
                                 <div className="segment-actions">
                                   <button
                                     type="button"
                                     className="action-link"
-                                    onClick={() => void actions.changeKind(seg.id, 'nap')}
+                                    onClick={() => void actions.changeKind(seg.id, isNight ? 'nap' : 'night')}
                                   >
-                                    改为午睡
+                                    {isNight ? '改为午睡' : '改为夜间睡眠'}
                                   </button>
                                   <button
                                     type="button"
                                     className="action-link danger-link"
-                                    onClick={() => setDeletingSegment(seg)}
+                                    onClick={(event) => {
+                                      deleteTriggerRef.current = event.currentTarget;
+                                      setDeletingSegment(seg);
+                                    }}
                                   >
                                     删除
                                   </button>
@@ -243,48 +265,6 @@ export function HistoryPage({ segments, today, timezone, actions }: HistoryPageP
                               </div>
                             );
                           })}
-                        </div>
-                      </div>
-                    );
-                  })}
-
-                  {/* Naps */}
-                  {naps.map((seg) => {
-                    const segMs = seg.endAt ? Date.parse(seg.endAt) - Date.parse(seg.startAt) : 0;
-                    const isUncertain = seg.status === 'uncertain';
-                    return (
-                      <div key={seg.id} className="history-record-group nap-record">
-                        <div className="group-header">
-                          <span className="record-badge nap-badge">午睡</span>
-                          <strong className="group-duration">{formatDuration(segMs)}</strong>
-                        </div>
-                        <div className="segment-row">
-                          <div className="segment-info">
-                            <span className="segment-time">
-                              {formatTime(seg.startAt)} — {formatTime(seg.endAt)}
-                            </span>
-                            {isUncertain && (
-                              <span className="uncertain-tag" title={seg.uncertainReason ?? undefined}>
-                                时间可能不准确
-                              </span>
-                            )}
-                          </div>
-                          <div className="segment-actions">
-                            <button
-                              type="button"
-                              className="action-link"
-                              onClick={() => void actions.changeKind(seg.id, 'night')}
-                            >
-                              改为夜间睡眠
-                            </button>
-                            <button
-                              type="button"
-                              className="action-link danger-link"
-                              onClick={() => setDeletingSegment(seg)}
-                            >
-                              删除
-                            </button>
-                          </div>
                         </div>
                       </div>
                     );
@@ -312,7 +292,10 @@ export function HistoryPage({ segments, today, timezone, actions }: HistoryPageP
             setDeletingSegment(null);
             void actions.deleteSegment(id);
           }}
-          onCancel={() => setDeletingSegment(null)}
+          onCancel={() => {
+            setDeletingSegment(null);
+            deleteTriggerRef.current?.focus();
+          }}
         />
       )}
     </main>

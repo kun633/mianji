@@ -58,6 +58,11 @@ export class BrowserFileBackup {
   }
 }
 
+export async function replaceBackupDirectory(settings: BackupSettingsRepository, files: Pick<BrowserFileBackup, 'writeTo'>, candidate: FileSystemDirectoryHandle, text: string): Promise<void> {
+  await files.writeTo(candidate, text);
+  await settings.setDirectory(candidate);
+}
+
 export async function requestPersistentStorage(): Promise<boolean> {
   return navigator.storage?.persist ? navigator.storage.persist() : false;
 }

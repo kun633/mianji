@@ -3,9 +3,11 @@ import {
   createBackup,
   mergeBackup,
   parseBackup,
+  resolveBackupMerge,
   shouldRemindManualBackup,
   toCsv,
   type MergeConflict,
+  type ConflictResolution,
   type SleepBackup,
 } from '../data/backup';
 import type { BackupCapability, BackupStatus } from '../data/file-backup';
@@ -21,9 +23,9 @@ export interface SettingsModel {
 
 export interface SettingsActions {
   chooseFolder(): Promise<void>;
-  exportJson(): void;
+  exportJson(): Promise<void>;
   exportCsv(): void;
-  restore(segments: SleepSegment[]): Promise<void>;
+  restore(expected: SleepSegment[], segments: SleepSegment[]): Promise<void>;
   requestPersistentStorage(): Promise<boolean>;
 }
 
@@ -42,11 +44,17 @@ export function SettingsPage({ model, timezone, actions }: SettingsPageProps) {
   const [backupFile, setBackupFile] = useState<SleepBackup | null>(null);
   const [parseError, setParseError] = useState<string | null>(null);
   const [conflicts, setConflicts] = useState<MergeConflict[]>([]);
-  const [resolutions, setResolutions] = useState<Record<string, 'keep-current' | 'use-backup'>>({});
+  const [mergeBase, setMergeBase] = useState<SleepSegment[]>([]);
+  const [previewSnapshot, setPreviewSnapshot] = useState<SleepSegment[]>([]);
+  const [resolutions, setResolutions] = useState<Record<string, ConflictResolution>>({});
   const [persistentGranted, setPersistentGranted] = useState<boolean | undefined>(
     model.isPersistentStorageGranted
   );
   const [operationMessage, setOperationMessage] = useState<string | null>(null);
+
+  const showError = (error: unknown, fallback: string) => {
+    setOperationMessage(error instanceof Error ? error.message : fallback);
+  };
 
   const needsManualReminder = shouldRemindManualBackup(
     model.status.lastSuccessfulBackupAt,
@@ -59,6 +67,8 @@ export function SettingsPage({ model, timezone, actions }: SettingsPageProps) {
     setParseError(null);
     setBackupFile(null);
     setConflicts([]);
+    setMergeBase([]);
+    setPreviewSnapshot([]);
     setResolutions({});
     setOperationMessage(null);
 
@@ -69,13 +79,8 @@ export function SettingsPage({ model, timezone, actions }: SettingsPageProps) {
 
       const mergeResult = mergeBackup(model.segments, parsed.segments);
       setConflicts(mergeResult.conflicts);
-
-      // Default all conflicts to keep-current
-      const initialResolutions: Record<string, 'keep-current' | 'use-backup'> = {};
-      for (const c of mergeResult.conflicts) {
-        initialResolutions[c.current.id] = 'keep-current';
-      }
-      setResolutions(initialResolutions);
+      setMergeBase(mergeResult.merged);
+      setPreviewSnapshot([...model.segments]);
     } catch (err) {
       setParseError(err instanceof Error ? err.message : '备份文件格式不正确');
     }
@@ -91,26 +96,10 @@ export function SettingsPage({ model, timezone, actions }: SettingsPageProps) {
       return;
     }
 
-    // Resolve conflicts
-    const map = new Map(model.segments.map((s) => [s.id, s]));
-    for (const segment of backupFile.segments) {
-      const existing = map.get(segment.id);
-      if (existing) {
-        const choice = resolutions[segment.id];
-        if (choice === 'use-backup') {
-          map.set(segment.id, segment);
-        }
-      } else {
-        map.set(segment.id, segment);
-      }
-    }
-
-    const finalSegments = Array.from(map.values()).sort((a, b) =>
-      a.startAt.localeCompare(b.startAt)
-    );
+    const finalSegments = resolveBackupMerge(mergeBase, conflicts, resolutions);
 
     try {
-      await actions.restore(finalSegments);
+      await actions.restore(previewSnapshot, finalSegments);
       setBackupFile(null);
       setConflicts([]);
       setResolutions({});
@@ -121,9 +110,16 @@ export function SettingsPage({ model, timezone, actions }: SettingsPageProps) {
   };
 
   const handleRequestStorage = async () => {
-    const result = await actions.requestPersistentStorage();
-    setPersistentGranted(result);
-    setOperationMessage(result ? '已成功开启持久化存储' : '浏览器未授予持久化存储权限');
+    try {
+      const result = await actions.requestPersistentStorage();
+      setPersistentGranted(result);
+      setOperationMessage(result ? '已成功开启持久化存储' : '浏览器未授予持久化存储权限');
+    } catch (error) { showError(error, '持久化存储请求失败'); }
+  };
+
+  const handleChooseFolder = async () => {
+    try { await actions.chooseFolder(); }
+    catch (error) { showError(error, '自动备份文件夹操作失败'); }
   };
 
   // Compute preview summary text
@@ -142,6 +138,12 @@ export function SettingsPage({ model, timezone, actions }: SettingsPageProps) {
     )}`;
   };
 
+  const formatTime = (value: string | null, segmentTimezone: string) => value
+    ? new Intl.DateTimeFormat('zh-CN', { hour: '2-digit', minute: '2-digit', timeZone: segmentTimezone }).format(new Date(value))
+    : '未结束';
+  const conflictValue = (segment: SleepSegment) => `${segment.kind === 'night' ? '夜间睡眠' : '午睡'}，${formatTime(segment.startAt, segment.startTimezone)} — ${formatTime(segment.endAt, segment.endTimezone ?? segment.startTimezone)}`;
+  const hasUnresolvedConflicts = conflicts.some((conflict) => !resolutions[conflict.current.id]);
+
   return (
     <main className="settings-page">
       <div className="settings-container">
@@ -150,7 +152,7 @@ export function SettingsPage({ model, timezone, actions }: SettingsPageProps) {
           <h1>数据管理</h1>
         </header>
 
-        {operationMessage && <div className="toast-message">{operationMessage}</div>}
+        {operationMessage && <div className="toast-message" role="alert">{operationMessage}</div>}
 
         {/* 自动备份状态与文件夹 */}
         <section className="settings-section" aria-label="自动备份状态">
@@ -191,7 +193,7 @@ export function SettingsPage({ model, timezone, actions }: SettingsPageProps) {
               <button
                 type="button"
                 className="full-button primary-action-btn"
-                onClick={() => void actions.chooseFolder()}
+                onClick={() => void handleChooseFolder()}
               >
                 {model.status.state === 'ready' ? '更改自动备份文件夹' : '选择自动备份文件夹'}
               </button>
@@ -206,7 +208,7 @@ export function SettingsPage({ model, timezone, actions }: SettingsPageProps) {
             <button
               type="button"
               className="export-btn"
-              onClick={() => actions.exportJson()}
+              onClick={() => void actions.exportJson()}
             >
               导出完整备份 (JSON)
             </button>
@@ -245,9 +247,7 @@ export function SettingsPage({ model, timezone, actions }: SettingsPageProps) {
                     {conflicts.map((c) => (
                       <div key={c.current.id} className="conflict-item">
                         <p>
-                          记录 {c.current.id.slice(0, 8)}：
-                          {c.current.kind === 'night' ? '当前为夜间' : '当前为午睡'} vs{' '}
-                          {c.incoming.kind === 'night' ? '备份为夜间' : '备份为午睡'}
+                          记录 {c.current.id.slice(0, 8)}：当前：{conflictValue(c.current)}；备份：{conflictValue(c.incoming)}
                         </p>
                         <div className="conflict-choices">
                           <label>
@@ -291,6 +291,8 @@ export function SettingsPage({ model, timezone, actions }: SettingsPageProps) {
                     onClick={() => {
                       setBackupFile(null);
                       setConflicts([]);
+                      setMergeBase([]);
+                      setPreviewSnapshot([]);
                       setResolutions({});
                     }}
                   >
@@ -299,6 +301,7 @@ export function SettingsPage({ model, timezone, actions }: SettingsPageProps) {
                   <button
                     type="button"
                     className="primary-button"
+                    disabled={hasUnresolvedConflicts}
                     onClick={() => void handleConfirmRestore()}
                   >
                     确认恢复

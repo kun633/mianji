@@ -9,9 +9,19 @@ class MemorySleepRepository implements SleepRepository {
   async get(id: string) { return this.values.get(id); }
   async list() { return [...this.values.values()]; }
   async getActive() { return [...this.values.values()].find((value) => value.status === 'active'); }
+  async createActiveIfNone(segment: SleepSegment) {
+    if ([...this.values.values()].some((value) => value.status === 'active')) return false;
+    this.values.set(segment.id, segment);
+    return true;
+  }
   async save(segment: SleepSegment) { this.values.set(segment.id, segment); }
   async remove(id: string) { this.values.delete(id); }
   async replaceAll(segments: SleepSegment[]) { this.values = new Map(segments.map((segment) => [segment.id, segment])); }
+  async replaceAllIfUnchanged(expected: SleepSegment[], segments: SleepSegment[]) {
+    if (JSON.stringify(await this.list()) !== JSON.stringify(expected)) return false;
+    await this.replaceAll(segments);
+    return true;
+  }
 }
 
 class MutableClock implements Clock {
@@ -44,6 +54,25 @@ describe('SleepService', () => {
     clock.set('2026-09-03T00:40:00.000Z');
     const second = await service.continueNight(first.id);
     expect(second.groupId).toBe(first.groupId);
+  });
+
+  it('allows only one of two concurrent starts to create an active segment', async () => {
+    let releaseReads!: () => void;
+    const readsReleased = new Promise<void>((resolve) => { releaseReads = resolve; });
+    let readCount = 0;
+    const originalGetActive = repo.getActive.bind(repo);
+    repo.getActive = async () => {
+      readCount += 1;
+      if (readCount === 2) releaseReads();
+      await readsReleased;
+      return originalGetActive();
+    };
+
+    const results = await Promise.allSettled([service.start('night'), service.start('nap')]);
+
+    expect(results.filter((result) => result.status === 'fulfilled')).toHaveLength(1);
+    expect(results.filter((result) => result.status === 'rejected')).toHaveLength(1);
+    expect((await repo.list()).filter((segment) => segment.status === 'active')).toHaveLength(1);
   });
 
   it('backs up every successful mutation', async () => {
@@ -165,6 +194,25 @@ describe('SleepService', () => {
     const changed = await service.changeKind(nap.id, 'night');
     expect(changed.groupId).toBe(completedNight.groupId);
     expect(changed.groupId).toBe(night.groupId);
+  });
+
+  it('does not join a night group merely because an early segment shares the nap wake date', async () => {
+    clock.set('2026-09-01T13:00:00.000Z');
+    const early = await service.start('night');
+    clock.set('2026-09-01T15:30:00.000Z');
+    await service.wake();
+    clock.set('2026-09-01T17:00:00.000Z');
+    await service.continueNight(early.id);
+    clock.set('2026-09-01T22:00:00.000Z');
+    await service.wake();
+    clock.set('2026-09-01T14:00:00.000Z');
+    const nap = await service.start('nap');
+    clock.set('2026-09-01T15:00:00.000Z');
+    await service.wake();
+
+    const changed = await service.changeKind(nap.id, 'night');
+
+    expect(changed.groupId).not.toBe(early.groupId);
   });
 
   it('deletes completed records and resolves an overlong record by delete or continue', async () => {

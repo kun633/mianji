@@ -98,22 +98,66 @@ export default function App() {
   const [needRefresh, setNeedRefresh] = useState(false);
   const [updateSW, setUpdateSW] = useState<(() => Promise<void>) | null>(null);
   const [tick, setTick] = useState(0);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [appError, setAppError] = useState<string | null>(null);
+
+  const backupWarning = (status: BackupStatus) => {
+    if (status.state === 'write-failed') {
+      return `自动备份未更新：${status.message || '请重新选择备份文件夹'}`;
+    }
+    if (status.state === 'needs-permission') {
+      return '自动备份未更新，请重新授权文件夹';
+    }
+    return null;
+  };
+
+  const runMutation = async <T,>(operation: () => Promise<T>): Promise<T | undefined> => {
+    try {
+      return await operation();
+    } catch (error) {
+      if (error instanceof DOMException && error.name === 'AbortError') return undefined;
+      setAppError(error instanceof Error ? error.message : '操作失败，请重试');
+      return undefined;
+    }
+  };
+
+  const runVoidMutation = async (operation: () => Promise<void>): Promise<boolean> => {
+    try {
+      await operation();
+      return true;
+    } catch (error) {
+      if (error instanceof DOMException && error.name === 'AbortError') return false;
+      setAppError(error instanceof Error ? error.message : '操作失败，请重试');
+      return false;
+    }
+  };
 
   useEffect(() => {
     const updateFn = registerAppServiceWorker(() => setNeedRefresh(true));
     setUpdateSW(() => updateFn);
   }, []);
 
+  useEffect(() => {
+    if (!appError) return;
+    const timer = window.setTimeout(() => setAppError(null), 6000);
+    return () => window.clearTimeout(timer);
+  }, [appError]);
+
   const refreshData = async () => {
-    const list = await repository.list();
-    setSegments(list);
-    const todayM = await loadTodayModel(service, repository);
-    setModel(todayM);
-    const st = await settingsRepository.getStatus();
-    setBackupStatus(st);
-    setCapability(fileBackup.capability());
-    if (navigator.storage?.persisted) {
-      navigator.storage.persisted().then(setIsPersistent).catch(() => undefined);
+    try {
+      const list = await repository.list();
+      const st = await settingsRepository.getStatus();
+      const todayM = await loadTodayModel(service, repository);
+      setSegments(list);
+      setModel({ ...todayM, backupWarning: backupWarning(st) });
+      setBackupStatus(st);
+      setCapability(fileBackup.capability());
+      setLoadError(null);
+      if (navigator.storage?.persisted) {
+        navigator.storage.persisted().then(setIsPersistent).catch(() => undefined);
+      }
+    } catch (error) {
+      setLoadError(error instanceof Error ? error.message : '记录加载失败，请重试');
     }
   };
 
@@ -128,7 +172,8 @@ export default function App() {
 
   const todayActions: TodayActions = {
     start: async (kind) => {
-      const segment = await service.start(kind);
+      const segment = await runMutation(() => service.start(kind));
+      if (!segment) return;
       setModel({
         state: 'active',
         segment,
@@ -139,7 +184,8 @@ export default function App() {
       await refreshData();
     },
     resetStart: async () => {
-      const segment = await service.resetActiveStart();
+      const segment = await runMutation(() => service.resetActiveStart());
+      if (!segment) return;
       setModel({
         state: 'active',
         segment,
@@ -150,16 +196,17 @@ export default function App() {
       await refreshData();
     },
     cancel: async () => {
-      await service.cancelActive();
+      if (!await runVoidMutation(() => service.cancelActive())) return;
       setModel({ state: 'idle', lastNightMs: null, backupWarning: null });
       await refreshData();
     },
     wake: async () => {
-      await service.wake();
+      if (await runMutation(() => service.wake()) === undefined) return;
       await refreshData();
     },
     undoWake: async (id) => {
-      const segment = await service.undoWake(id);
+      const segment = await runMutation(() => service.undoWake(id));
+      if (!segment) return;
       setModel({
         state: 'active',
         segment,
@@ -170,7 +217,8 @@ export default function App() {
       await refreshData();
     },
     continueNight: async (id) => {
-      const segment = await service.continueNight(id);
+      const segment = await runMutation(() => service.continueNight(id));
+      if (!segment) return;
       setModel({
         state: 'active',
         segment,
@@ -181,7 +229,8 @@ export default function App() {
       await refreshData();
     },
     resolveOverlong: async (action) => {
-      const segment = await service.resolveOverlong(action);
+      const segment = await runMutation(() => service.resolveOverlong(action));
+      if (segment === undefined && action !== 'delete') return;
       if (!segment) {
         setModel({ state: 'idle', lastNightMs: null, backupWarning: null });
       } else if (action === 'continue') {
@@ -207,34 +256,41 @@ export default function App() {
 
   const historyActions: HistoryActions = {
     changeKind: async (id, kind) => {
-      await service.changeKind(id, kind);
-      await refreshData();
+      if (await runMutation(() => service.changeKind(id, kind))) await refreshData();
     },
     deleteSegment: async (id) => {
-      await service.deleteSegment(id);
+      if (!await runVoidMutation(() => service.deleteSegment(id))) return;
       await refreshData();
     },
   };
 
   const settingsActions: SettingsActions = {
     chooseFolder: async () => {
-      const handle = await fileBackup.chooseFolder();
-      await settingsRepository.setDirectory(handle);
-      await backupTrigger.run();
-      await refreshData();
+      await runMutation(async () => {
+        const handle = await fileBackup.chooseFolder();
+        await fileBackup.writeTo(handle, createBackup(segments, clock.nowIso()));
+        await settingsRepository.setDirectory(handle);
+        await backupTrigger.run();
+        await refreshData();
+      });
     },
-    exportJson: () => {
+    exportJson: async () => {
       const text = createBackup(segments, clock.nowIso());
       const dateStr = displayDate(clock.nowIso(), clock.timezone());
       downloadBackup(text, `眠记-备份-${dateStr}.json`);
+      const status = { ...backupStatus, lastSuccessfulBackupAt: clock.nowIso() };
+      await settingsRepository.setStatus(status);
+      setBackupStatus(status);
     },
     exportCsv: () => {
       const text = toCsv(segments);
       const dateStr = displayDate(clock.nowIso(), clock.timezone());
       downloadBackup(text, `眠记-睡眠记录-${dateStr}.csv`);
     },
-    restore: async (newSegments) => {
-      await repository.replaceAll(newSegments);
+    restore: async (expected, newSegments) => {
+      if (!await repository.replaceAllIfUnchanged(expected, newSegments)) {
+        throw new Error('记录已发生变化，请重新预览备份');
+      }
       await backupTrigger.run();
       await refreshData();
     },
@@ -256,6 +312,16 @@ export default function App() {
   };
 
   if (!model) {
+    if (loadError) {
+      return (
+        <main className="today-page loading-view">
+          <div className="today-state">
+            <p className="error-text" role="alert">{loadError}</p>
+            <button type="button" onClick={() => void refreshData()}>重试加载</button>
+          </div>
+        </main>
+      );
+    }
     return (
       <main className="today-page loading-view" aria-busy="true">
         <p>正在加载记录…</p>
@@ -271,6 +337,19 @@ export default function App() {
         applyUpdate={() => void updateSW?.()}
       />
       <div className="app-content">
+        {appError && (
+          <div className="app-error-banner" role="alert">
+            <span>{appError}</span>
+            <button
+              type="button"
+              className="error-close-btn"
+              onClick={() => setAppError(null)}
+              aria-label="关闭错误提示"
+            >
+              ×
+            </button>
+          </div>
+        )}
         {tab === 'today' && <TodayPage model={model} actions={todayActions} />}
         {tab === 'history' && (
           <HistoryPage

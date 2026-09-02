@@ -33,8 +33,30 @@ test.describe('Backup and Recovery E2E', () => {
 
     // Verify recovery
     await restoredPage.getByRole('button', { name: '历史' }).click();
-    await expect(restoredPage.locator('.history-list-section').getByText('午睡')).toBeVisible();
+    await expect(restoredPage.locator('.history-list-section').getByText('午睡', { exact: true })).toBeVisible();
 
     await restored.close();
+  });
+
+  test('manual JSON export updates the manual-backup reminder timestamp', async ({ page }) => {
+    await page.goto('/');
+    await page.getByRole('button', { name: '设置' }).click();
+    const downloadPromise = page.waitForEvent('download');
+    await page.getByRole('button', { name: '导出完整备份 (JSON)' }).click();
+    await downloadPromise;
+
+    const lastSuccessfulBackupAt = await page.evaluate(async () => {
+      return new Promise<string | null>((resolve, reject) => {
+        const request = indexedDB.open('mianji-sleep-log-settings', 1);
+        request.onsuccess = () => {
+          const db = request.result;
+          const get = db.transaction('settings').objectStore('settings').get('status');
+          get.onsuccess = () => { db.close(); resolve(get.result?.lastSuccessfulBackupAt ?? null); };
+          get.onerror = () => { db.close(); reject(get.error); };
+        };
+        request.onerror = () => reject(request.error);
+      });
+    });
+    expect(lastSuccessfulBackupAt).not.toBeNull();
   });
 });

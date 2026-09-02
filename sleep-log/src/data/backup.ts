@@ -2,6 +2,7 @@ import type { SleepSegment, SleepKind, SleepStatus } from '../domain/sleep';
 
 export interface SleepBackup { app: '眠记'; version: 1; exportedAt: string; segments: SleepSegment[]; }
 export interface MergeConflict { current: SleepSegment; incoming: SleepSegment; }
+export type ConflictResolution = 'keep-current' | 'use-backup';
 
 export function createBackup(segments: SleepSegment[], exportedAt = new Date().toISOString()): string {
   return JSON.stringify({ app: '眠记', version: 1, exportedAt, segments } satisfies SleepBackup, null, 2);
@@ -47,7 +48,8 @@ function isSleepBackup(value: unknown): value is SleepBackup {
   if (!value || typeof value !== 'object') return false;
   const item = value as Record<string, unknown>;
   return sameKeys(item, ['app', 'version', 'exportedAt', 'segments']) && item.app === '眠记' && item.version === 1 && isoTime(item.exportedAt)
-    && Array.isArray(item.segments) && item.segments.every(isSleepSegment);
+    && Array.isArray(item.segments) && item.segments.every(isSleepSegment)
+    && item.segments.filter((segment) => segment.status === 'active').length <= 1;
 }
 
 export function parseBackup(text: string): SleepBackup {
@@ -81,6 +83,20 @@ export function mergeBackup(current: SleepSegment[], incoming: SleepSegment[]) {
     }
   }
   return { merged: [...map.values()].sort((a, b) => a.startAt.localeCompare(b.startAt)), conflicts };
+}
+
+export function resolveBackupMerge(
+  merged: SleepSegment[],
+  conflicts: MergeConflict[],
+  resolutions: Record<string, ConflictResolution>,
+): SleepSegment[] {
+  const map = new Map(merged.map((segment) => [segment.id, segment]));
+  for (const conflict of conflicts) {
+    const choice = resolutions[conflict.current.id];
+    if (!choice) throw new Error('存在未解决的冲突，请先选择处理方式');
+    if (choice === 'use-backup') map.set(conflict.current.id, conflict.incoming);
+  }
+  return [...map.values()].sort((a, b) => a.startAt.localeCompare(b.startAt));
 }
 
 export function shouldRemindManualBackup(lastSuccessfulBackupAt: string | null, nowMs: number, days = 30): boolean {

@@ -202,7 +202,7 @@ test.describe('Sleep Log PWA App Workflows', () => {
     await page.getByRole('button', { name: '删除' }).click();
     await expect(page.getByRole('dialog')).toBeVisible();
     await page.getByRole('button', { name: '取消' }).click();
-    await expect(page.locator('.history-list-section').getByText('午睡')).toBeVisible();
+    await expect(page.locator('.history-list-section').getByText('午睡', { exact: true })).toBeVisible();
 
     await page.getByRole('button', { name: '删除' }).click();
     await page.getByRole('button', { name: '确认删除' }).click();

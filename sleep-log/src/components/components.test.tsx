@@ -1,4 +1,4 @@
-﻿import '@testing-library/jest-dom/vitest';
+import '@testing-library/jest-dom/vitest';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { loadTodayModel } from '../App';
@@ -42,7 +42,7 @@ const makeHistoryActions = (): HistoryActions => ({
 
 const makeSettingsActions = (): SettingsActions => ({
   chooseFolder: vi.fn().mockResolvedValue(undefined),
-  exportJson: vi.fn(),
+  exportJson: vi.fn().mockResolvedValue(undefined),
   exportCsv: vi.fn(),
   restore: vi.fn().mockResolvedValue(undefined),
   requestPersistentStorage: vi.fn().mockResolvedValue(true),
@@ -157,6 +157,58 @@ describe('TodayPage', () => {
       />
     );
     expect(screen.queryByRole('button', { name: '再睡一段' })).not.toBeInTheDocument();
+  });
+
+  it('starts a fresh night or nap from a finished nap while keeping continue-night night-only', async () => {
+    const actions = makeActions();
+    const finishedNap = makeSegment({ kind: 'nap', groupId: null });
+    render(
+      <TodayPage
+        model={{ ...completedModel, segment: finishedNap, groupSegments: [finishedNap] }}
+        actions={actions}
+      />
+    );
+
+    expect(screen.queryByRole('button', { name: '再睡一段' })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '记录新的睡眠' }));
+    fireEvent.click(screen.getByRole('button', { name: '夜间睡眠' }));
+    expect(actions.start).toHaveBeenCalledWith('night');
+
+    await waitFor(() => expect(screen.queryByRole('button', { name: '夜间睡眠' })).not.toBeInTheDocument());
+    fireEvent.click(screen.getByRole('button', { name: '记录新的睡眠' }));
+    fireEvent.click(screen.getByRole('button', { name: '午睡' }));
+    expect(actions.start).toHaveBeenCalledWith('nap');
+  });
+
+  it('shows a backup warning on the idle screen', () => {
+    render(<TodayPage model={{ ...idleModel, backupWarning: '自动备份未更新，请重新授权文件夹' }} actions={makeActions()} />);
+    expect(screen.getByRole('alert')).toHaveTextContent('自动备份未更新，请重新授权文件夹');
+  });
+
+  it('focuses the type chooser and closes it with Escape', () => {
+    render(<TodayPage model={idleModel} actions={makeActions()} />);
+    fireEvent.click(screen.getByRole('button', { name: '开始睡觉' }));
+    expect(screen.getByRole('button', { name: '夜间睡眠' })).toHaveFocus();
+    fireEvent.keyDown(screen.getByRole('dialog'), { key: 'Escape' });
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '开始睡觉' })).toHaveFocus();
+  });
+
+  it('does not submit a finished-screen start twice while it is pending', async () => {
+    let resolveStart!: () => void;
+    const actions = makeActions();
+    actions.start = vi.fn(() => new Promise<void>((resolve) => { resolveStart = resolve; }));
+    render(<TodayPage model={completedModel} actions={actions} />);
+
+    fireEvent.click(screen.getByRole('button', { name: '记录新的睡眠' }));
+    const nightButton = screen.getByRole('button', { name: '夜间睡眠' });
+    fireEvent.click(nightButton);
+    fireEvent.click(nightButton);
+
+    expect(actions.start).toHaveBeenCalledOnce();
+    expect(nightButton).toBeDisabled();
+    resolveStart();
+    await waitFor(() => expect(screen.queryByRole('button', { name: '夜间睡眠' })).not.toBeInTheDocument());
   });
 
   it('offers explicit choices for an overlong active record', () => {
@@ -307,6 +359,78 @@ describe('HistoryPage', () => {
     fireEvent.click(screen.getByRole('button', { name: '确认删除' }));
     expect(actions.deleteSegment).toHaveBeenCalledWith('n-1');
   });
+
+  it('focuses the delete dialog and cancels it with Escape', () => {
+    const actions = makeHistoryActions();
+    render(<HistoryPage segments={[completedNight]} today="2026-09-03" timezone="Asia/Shanghai" actions={actions} />);
+    const deleteButton = screen.getByRole('button', { name: '删除' });
+    fireEvent.click(deleteButton);
+    expect(screen.getByRole('button', { name: '取消' })).toHaveFocus();
+    fireEvent.keyDown(screen.getByRole('dialog'), { key: 'Escape' });
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    expect(deleteButton).toHaveFocus();
+  });
+
+  it('uses the stored timezone when showing a record created elsewhere', () => {
+    const actions = makeHistoryActions();
+    const newYorkNight = makeSegment({
+      startAt: '2026-09-02T02:00:00.000Z',
+      endAt: '2026-09-02T10:00:00.000Z',
+      startTimezone: 'America/New_York',
+      endTimezone: 'America/New_York',
+      finishedAt: '2026-09-02T10:00:00.000Z',
+    });
+    render(<HistoryPage segments={[newYorkNight]} today="2026-09-02" timezone="Asia/Shanghai" actions={actions} />);
+
+    expect(screen.getByText('2026-09-02')).toBeInTheDocument();
+    expect(screen.getByText('22:00 — 06:00')).toBeInTheDocument();
+  });
+
+  it('keeps invalid records visible and out of night and day totals', () => {
+    const actions = makeHistoryActions();
+    const valid = makeSegment({ id: 'valid', groupId: 'mixed', startAt: '2026-09-02T14:00:00.000Z', endAt: '2026-09-02T16:00:00.000Z', finishedAt: '2026-09-02T16:00:00.000Z' });
+    const invalid = makeSegment({ id: 'invalid', groupId: 'mixed', startAt: '2026-09-02T18:00:00.000Z', endAt: '2026-09-02T17:00:00.000Z', finishedAt: '2026-09-02T17:00:00.000Z', status: 'invalid' });
+    render(<HistoryPage segments={[valid, invalid]} today="2026-09-03" timezone="Asia/Shanghai" actions={actions} />);
+
+    expect(screen.getByText('时间无效')).toBeInTheDocument();
+    expect(screen.getAllByText('2小时0分').length).toBeGreaterThan(0);
+  });
+
+  it('shows night, nap, and all-sleep totals for every history day', () => {
+    const actions = makeHistoryActions();
+    const night = makeSegment({ id: 'night-total', startAt: '2026-09-02T14:00:00.000Z', endAt: '2026-09-02T21:00:00.000Z', finishedAt: '2026-09-02T21:00:00.000Z' });
+    const nap = makeSegment({ id: 'nap-total', kind: 'nap', groupId: null, startAt: '2026-09-03T04:00:00.000Z', endAt: '2026-09-03T04:30:00.000Z', finishedAt: '2026-09-03T04:30:00.000Z' });
+    render(<HistoryPage segments={[night, nap]} today="2026-09-03" timezone="Asia/Shanghai" actions={actions} />);
+
+    const day = screen.getByText('2026-09-03').closest('.history-day-card')!;
+    expect(day).toHaveTextContent('夜间 7小时0分');
+    expect(day).toHaveTextContent('午睡 30分');
+    expect(day).toHaveTextContent('全天 7小时30分');
+  });
+
+  it('groups multi-segment night sleep crossing midnight under the final wake date', () => {
+    const actions = makeHistoryActions();
+    const seg1 = makeSegment({
+      id: 'seg-1',
+      groupId: 'cross-midnight',
+      startAt: '2026-09-02T14:00:00.000Z',
+      endAt: '2026-09-02T15:50:00.000Z',
+      finishedAt: '2026-09-02T15:50:00.000Z',
+    });
+    const seg2 = makeSegment({
+      id: 'seg-2',
+      groupId: 'cross-midnight',
+      startAt: '2026-09-02T16:30:00.000Z',
+      endAt: '2026-09-02T22:30:00.000Z',
+      finishedAt: '2026-09-02T22:30:00.000Z',
+    });
+
+    render(<HistoryPage segments={[seg1, seg2]} today="2026-09-03" timezone="Asia/Shanghai" actions={actions} />);
+
+    expect(screen.getByText('2026-09-03')).toBeInTheDocument();
+    expect(screen.queryByText('2026-09-02')).not.toBeInTheDocument();
+    expect(screen.getByText('2 段合计')).toBeInTheDocument();
+  });
 });
 
 describe('SettingsPage', () => {
@@ -345,6 +469,58 @@ describe('SettingsPage', () => {
     await waitFor(() => {
       expect(actions.restore).toHaveBeenCalledOnce();
     });
+    expect(actions.restore).toHaveBeenCalledWith(settingsModel.segments, [sampleSegment]);
+  });
+
+  it('restores the deduplicated preview instead of re-adding a different-id copy', async () => {
+    const actions = makeSettingsActions();
+    const duplicate = { ...sampleSegment, id: 'same-content-new-id' };
+    const file = new File([createBackup([duplicate])], 'duplicate.json', { type: 'application/json' });
+    render(<SettingsPage model={settingsModel} timezone="Asia/Shanghai" actions={actions} />);
+
+    fireEvent.change(screen.getByLabelText('选择备份文件'), { target: { files: [file] } });
+    await screen.findByText(/1 条记录/);
+    fireEvent.click(screen.getByRole('button', { name: '确认恢复' }));
+
+    await waitFor(() => expect(actions.restore).toHaveBeenCalledWith(settingsModel.segments, [sampleSegment]));
+  });
+
+  it('requires an explicit choice for every conflict and shows the differing times', async () => {
+    const actions = makeSettingsActions();
+    const secondCurrent = makeSegment({ id: 's-2', startAt: '2026-09-03T14:00:00.000Z', endAt: '2026-09-03T22:00:00.000Z', finishedAt: '2026-09-03T22:00:00.000Z' });
+    const currentModel = { ...settingsModel, segments: [sampleSegment, secondCurrent] };
+    const incoming = [
+      { ...sampleSegment, startAt: '2026-09-02T15:00:00.000Z', endAt: '2026-09-02T23:30:00.000Z' },
+      { ...secondCurrent, kind: 'nap' as const, groupId: null },
+    ];
+    const file = new File([createBackup(incoming)], 'conflicts.json', { type: 'application/json' });
+    render(<SettingsPage model={currentModel} timezone="Asia/Shanghai" actions={actions} />);
+
+    fireEvent.change(screen.getByLabelText('选择备份文件'), { target: { files: [file] } });
+    const confirm = await screen.findByRole('button', { name: '确认恢复' });
+    expect(confirm).toBeDisabled();
+    expect(screen.queryAllByRole('radio', { checked: true })).toHaveLength(0);
+    expect(screen.getByText(/当前：夜间睡眠，22:00 — 06:30/)).toBeInTheDocument();
+    expect(screen.getByText(/备份：夜间睡眠，23:00 — 07:30/)).toBeInTheDocument();
+
+    fireEvent.click(screen.getAllByRole('radio', { name: '保留当前' })[0]);
+    expect(confirm).toBeDisabled();
+    fireEvent.click(screen.getAllByRole('radio', { name: '采用备份' })[1]);
+    expect(confirm).toBeEnabled();
+  });
+
+  it('shows the stale-preview restore error without discarding the preview', async () => {
+    const actions = makeSettingsActions();
+    actions.restore = vi.fn().mockRejectedValue(new Error('记录已发生变化，请重新预览备份'));
+    const file = new File([createBackup([sampleSegment])], 'stale.json', { type: 'application/json' });
+    render(<SettingsPage model={settingsModel} timezone="Asia/Shanghai" actions={actions} />);
+
+    fireEvent.change(screen.getByLabelText('选择备份文件'), { target: { files: [file] } });
+    await screen.findByText(/1 条记录/);
+    fireEvent.click(screen.getByRole('button', { name: '确认恢复' }));
+
+    expect(await screen.findByText('记录已发生变化，请重新预览备份')).toBeInTheDocument();
+    expect(screen.getByText('备份预览')).toBeInTheDocument();
   });
 
   it('exports JSON and CSV on button clicks', () => {
@@ -358,6 +534,28 @@ describe('SettingsPage', () => {
 
     fireEvent.click(screen.getByRole('button', { name: '导出表格 (CSV)' }));
     expect(actions.exportCsv).toHaveBeenCalledOnce();
+  });
+
+  it('shows persistent-storage rejection without losing the settings page', async () => {
+    const actions = makeSettingsActions();
+    actions.requestPersistentStorage = vi.fn().mockRejectedValue(new Error('权限请求失败'));
+    render(<SettingsPage model={settingsModel} timezone="Asia/Shanghai" actions={actions} />);
+
+    fireEvent.click(screen.getByRole('button', { name: '请求持久化存储' }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('权限请求失败');
+    expect(screen.getByRole('heading', { name: '数据管理' })).toBeInTheDocument();
+  });
+
+  it('shows folder replacement errors without discarding the existing settings UI', async () => {
+    const actions = makeSettingsActions();
+    actions.chooseFolder = vi.fn().mockRejectedValue(new Error('自动备份写入失败'));
+    render(<SettingsPage model={settingsModel} timezone="Asia/Shanghai" actions={actions} />);
+
+    fireEvent.click(screen.getByRole('button', { name: '更改自动备份文件夹' }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('自动备份写入失败');
+    expect(screen.getByText('最近自动备份')).toBeInTheDocument();
   });
 });
 

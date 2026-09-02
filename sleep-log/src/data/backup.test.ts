@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { createSegment, type SleepSegment } from '../domain/sleep';
-import { createBackup, mergeBackup, parseBackup, shouldRemindManualBackup, toCsv } from './backup';
+import { createBackup, mergeBackup, parseBackup, resolveBackupMerge, shouldRemindManualBackup, toCsv } from './backup';
 
 const completedNight: SleepSegment = {
   ...createSegment({ id: 'night-1', kind: 'night', groupId: 'group-1', now: '2026-09-02T14:46:00.000Z', timezone: 'Asia/Shanghai' }),
@@ -37,6 +37,20 @@ describe('versioned sleep backups', () => {
     expect(mergeBackup([completedNight], [duplicateWithNewId]).merged).toEqual([completedNight]);
     const changed = { ...completedNight, kind: 'nap' as const, groupId: null };
     expect(mergeBackup([completedNight], [changed]).conflicts).toEqual([{ current: completedNight, incoming: changed }]);
+  });
+
+  it('resolves conflicts on top of the deduplicated merge base', () => {
+    const duplicateWithNewId = { ...completedNight, id: 'imported-copy' };
+    const conflict = { ...completedNight, kind: 'nap' as const, groupId: null };
+    const merge = mergeBackup([completedNight], [duplicateWithNewId, conflict]);
+
+    expect(resolveBackupMerge(merge.merged, merge.conflicts, { 'night-1': 'use-backup' })).toEqual([conflict]);
+  });
+
+  it('rejects backups containing more than one active segment', () => {
+    const first = createSegment({ id: 'active-1', kind: 'night', groupId: 'night-active', now: '2026-09-03T00:00:00.000Z', timezone: 'Asia/Shanghai' });
+    const second = createSegment({ id: 'active-2', kind: 'nap', groupId: null, now: '2026-09-03T01:00:00.000Z', timezone: 'Asia/Shanghai' });
+    expect(() => parseBackup(createBackup([first, second]))).toThrow('备份文件格式不正确');
   });
 
   it('does not deduplicate records whose non-id fields differ', () => {
