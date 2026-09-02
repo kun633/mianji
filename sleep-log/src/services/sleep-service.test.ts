@@ -47,10 +47,37 @@ describe('SleepService', () => {
   });
 
   it('backs up every successful mutation', async () => {
+    backupTrigger.run.mockRejectedValue(new Error('backup failed'));
     await service.start('nap');
     await service.resetActiveStart();
     await service.wake();
     expect(backupTrigger.run).toHaveBeenCalledTimes(3);
+  });
+
+  it('does not undo a wake when another active segment exists', async () => {
+    const first = await service.start('nap');
+    clock.advanceHours(1);
+    const completed = await service.wake();
+    const second = await service.start('night');
+
+    await expect(service.undoWake(first.id)).rejects.toThrow('已有正在记录的睡眠');
+    expect(await repo.get(first.id)).toEqual(completed);
+    expect(await service.getActive()).toEqual(second);
+  });
+
+  it('resolves mutations and keeps local data when backup fails', async () => {
+    backupTrigger.run.mockRejectedValue(new Error('backup failed'));
+
+    const started = await service.start('nap');
+    expect(await repo.get(started.id)).toEqual(started);
+    const reset = await service.resetActiveStart();
+    expect(await repo.get(reset.id)).toEqual(reset);
+    const completed = await service.wake();
+    expect(await repo.get(completed.id)).toEqual(completed);
+    const undone = await service.undoWake(completed.id);
+    expect(await repo.get(undone.id)).toEqual(undone);
+    await service.cancelActive();
+    expect(await repo.get(undone.id)).toBeUndefined();
   });
 
   it('marks a 20-hour active record uncertain only after user confirmation', async () => {

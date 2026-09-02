@@ -42,7 +42,7 @@ export class SleepService {
       timezone: this.clock.timezone(),
     });
     await this.repo.save(segment);
-    await this.backup.run();
+    await this.triggerBackup();
     return segment;
   }
 
@@ -50,29 +50,31 @@ export class SleepService {
     const active = await this.requireActive();
     const value = resetStart(active, this.clock.nowIso(), this.clock.timezone());
     await this.repo.save(value);
-    await this.backup.run();
+    await this.triggerBackup();
     return value;
   }
 
   async cancelActive() {
     const active = await this.requireActive();
     await this.repo.remove(active.id);
-    await this.backup.run();
+    await this.triggerBackup();
   }
 
   async wake() {
     const active = await this.requireActive();
     const value = finishSegment(active, this.clock.nowIso(), this.clock.timezone());
     await this.repo.save(value);
-    await this.backup.run();
+    await this.triggerBackup();
     return value;
   }
 
   async undoWake(id: string) {
     const value = await this.requireById(id);
     const undone = undoFinish(value, this.clock.nowIso());
+    const active = await this.repo.getActive();
+    if (active && active.id !== id) throw new Error('已有正在记录的睡眠');
     await this.repo.save(undone);
-    await this.backup.run();
+    await this.triggerBackup();
     return undone;
   }
 
@@ -101,7 +103,7 @@ export class SleepService {
       updatedAt: this.clock.nowIso(),
     };
     await this.repo.save(changed);
-    await this.backup.run();
+    await this.triggerBackup();
     return changed;
   }
 
@@ -109,7 +111,7 @@ export class SleepService {
     const current = await this.requireById(id);
     if (current.status === 'active') throw new Error('请使用取消本次记录');
     await this.repo.remove(id);
-    await this.backup.run();
+    await this.triggerBackup();
   }
 
   async resolveOverlong(action: 'finish-uncertain' | 'delete' | 'continue') {
@@ -118,7 +120,7 @@ export class SleepService {
     if (action === 'continue') return active;
     if (action === 'delete') {
       await this.repo.remove(active.id);
-      await this.backup.run();
+      await this.triggerBackup();
       return null;
     }
     const ended = markUncertain(
@@ -126,7 +128,7 @@ export class SleepService {
       'over-20-hours',
     );
     await this.repo.save(ended);
-    await this.backup.run();
+    await this.triggerBackup();
     return ended;
   }
 
@@ -144,5 +146,13 @@ export class SleepService {
     const value = await this.repo.get(id);
     if (!value) throw new Error('睡眠记录不存在');
     return value;
+  }
+
+  private async triggerBackup() {
+    try {
+      await this.backup.run();
+    } catch (error) {
+      console.warn('睡眠记录备份失败', error);
+    }
   }
 }
