@@ -25,3 +25,13 @@
 - `911cfa7 feat: add focused sleep recording interface`
 - `454823e fix: address Task 5 review findings`
 - `uncertain` 恢复修复提交：见本次最新提交
+
+## Task 5 最后一个 P1 修复
+
+`uncertain` 完成记录仍恢复为 finished，但不再生成或显示“撤销起床”；普通 `completed` 记录仍保留 60 秒撤销窗口。新增组件回归测试覆盖该边界，并更新 uncertain 恢复测试期望。
+
+## 本次验证
+
+- `npm test -- src/components/components.test.tsx`：1 个文件，13/13 测试通过
+- `npm test`：6 个文件，50/50 测试通过
+- `npm run build`：TypeScript 检查与 Vite 生产构建成功

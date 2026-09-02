@@ -94,6 +94,13 @@ describe('TodayPage', () => {
     expect(actions.undoWake).toHaveBeenCalledWith('segment-1');
   });
 
+  it('does not offer undo for an uncertain finished record', () => {
+    const actions = makeActions();
+    const uncertain = makeSegment({ status: 'uncertain', uncertainReason: 'over-20-hours' });
+    render(<TodayPage model={{ ...completedModel, segment: uncertain, groupSegments: [uncertain] }} actions={actions} />);
+    expect(screen.queryByRole('button', { name: '撤销起床' })).not.toBeInTheDocument();
+  });
+
   it('continues a finished night as another segment', () => {
     const actions = makeActions();
     render(<TodayPage model={completedModel} actions={actions} />);
@@ -166,7 +173,7 @@ describe('TodayPage', () => {
     if (model.state === 'finished') {
       expect(model.segment.status).toBe('uncertain');
       expect(model.groupSegments).toHaveLength(1);
-      expect(model.undoUntil).toBe('2026-09-03T07:31:00.000Z');
+      expect(model.undoUntil).toBe('');
     }
   });
 });

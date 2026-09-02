@@ -70,7 +70,7 @@ export function OverlongDialog({ actions }: { actions: TodayActions }) {
 }
 
 export function FinishedView({ model, actions }: { model: Extract<TodayModel, { state: 'finished' }>; actions: TodayActions }) {
-  const canUndo = Date.parse(model.undoUntil) >= Date.now();
+  const canUndo = model.segment.status === 'completed' && Date.parse(model.undoUntil) >= Date.now();
   const totalMs = model.groupSegments.reduce((total, segment) => total + (segment.endAt ? Date.parse(segment.endAt) - Date.parse(segment.startAt) : 0), 0);
   return <div className="today-state finished-view">
     <p className="eyebrow">记录完成</p><h1>{model.segment.kind === 'night' ? '夜间睡眠' : '午睡'}</h1>

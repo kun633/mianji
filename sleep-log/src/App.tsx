@@ -21,7 +21,9 @@ export function buildFinishedModel(segments: SleepSegment[], now = Date.now()): 
     state: 'finished',
     segment: latest,
     groupSegments,
-    undoUntil: new Date(Date.parse(latest.finishedAt!) + 60_000).toISOString(),
+    undoUntil: latest.status === 'completed'
+      ? new Date(Date.parse(latest.finishedAt!) + 60_000).toISOString()
+      : '',
     backupWarning: null,
   };
 }
