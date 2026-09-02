@@ -3,6 +3,16 @@ import {
   createSegment, durationMs, finishSegment, markUncertain,
   resetStart, undoFinish,
 } from './sleep';
+import type { SleepKind, SleepSegment } from './sleep';
+import { buildStats } from './stats';
+
+function completed(id: string, kind: SleepKind, groupId: string | null, startAt: string, endAt: string, timezone = 'Asia/Shanghai'): SleepSegment {
+  return {
+    id, kind, groupId, startAt, startTimezone: timezone,
+    endAt, endTimezone: timezone, status: 'completed', uncertainReason: null,
+    createdAt: startAt, updatedAt: endAt, finishedAt: endAt, schemaVersion: 1,
+  };
+}
 
 describe('sleep state transitions', () => {
   it('records the clicked time and resets it only while active', () => {
@@ -40,5 +50,42 @@ describe('sleep state transitions', () => {
     const uncertain = markUncertain(finishSegment(active, '2026-09-02T06:00:00.000Z', 'Asia/Shanghai'), 'forgot-to-stop');
     expect(uncertain.status).toBe('uncertain');
     expect(durationMs(uncertain)).toBe(3_600_000);
+  });
+});
+
+describe('sleep statistics', () => {
+  it('sums night segments, keeps naps separate, and excludes uncertain data', () => {
+    const segments = [
+      completed('n1', 'night', 'g1', '2026-09-02T15:00:00.000Z', '2026-09-02T18:00:00.000Z'),
+      completed('n2', 'night', 'g1', '2026-09-02T18:30:00.000Z', '2026-09-02T22:30:00.000Z'),
+      completed('p1', 'nap', null, '2026-09-03T05:00:00.000Z', '2026-09-03T05:30:00.000Z'),
+      { ...completed('bad', 'night', 'g2', '2026-09-01T15:00:00.000Z', '2026-09-01T22:00:00.000Z'), status: 'uncertain' as const },
+    ];
+    const result = buildStats(segments, 7, '2026-09-03', 'Asia/Shanghai');
+    expect(result.days.find((day) => day.date === '2026-09-03')).toEqual({ date: '2026-09-03', nightMs: 25_200_000, napMs: 1_800_000, totalMs: 27_000_000 });
+    expect(result.excludedCount).toBe(1);
+    expect(result.averageNightMs).toBe(25_200_000);
+  });
+
+  it('retains two nap history rows while summing their daily duration', () => {
+    const segments = [
+      completed('p1', 'nap', null, '2026-09-03T02:00:00.000Z', '2026-09-03T02:20:00.000Z'),
+      completed('p2', 'nap', null, '2026-09-03T05:00:00.000Z', '2026-09-03T05:30:00.000Z'),
+    ];
+    const result = buildStats(segments, 7, '2026-09-03', 'Asia/Shanghai');
+    expect(segments).toHaveLength(2);
+    expect(result.days).toEqual([{ date: '2026-09-03', nightMs: 0, napMs: 3_000_000, totalMs: 3_000_000 }]);
+  });
+
+  it('archives by wake date in the requested timezone and omits missing days from averages', () => {
+    const segments = [
+      completed('night', 'night', 'g1', '2026-09-01T16:00:00.000Z', '2026-09-02T16:30:00.000Z'),
+      completed('nap', 'nap', null, '2026-09-01T03:00:00.000Z', '2026-09-01T04:00:00.000Z'),
+    ];
+    const result = buildStats(segments, 7, '2026-09-03', 'Asia/Shanghai');
+    expect(result.days.map((day) => day.date)).toEqual(['2026-09-01', '2026-09-03']);
+    expect(result.averageNightMs).toBe(88_200_000);
+    expect(result.averageNapMs).toBe(3_600_000);
+    expect(result.averageTotalMs).toBe(45_900_000);
   });
 });
