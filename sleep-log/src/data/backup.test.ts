@@ -23,6 +23,14 @@ describe('versioned sleep backups', () => {
     expect(() => parseBackup(JSON.stringify({ app: '眠记', version: 1, exportedAt: '2026-09-03T00:00:00.000Z', segments: [{ ...completedNight, extra: true }] }))).toThrow('备份文件格式不正确');
   });
 
+  it('rejects calendar-invalid ISO timestamps without rejecting valid timezone forms', () => {
+    for (const timestamp of ['2026-02-30T12:00:00.000Z', '2026-01-01T24:00:00.000Z', '2026-01-01T23:60:00Z', '2026-01-01T23:59:60+08:00']) {
+      expect(() => parseBackup(createBackup([{ ...completedNight, startAt: timestamp }]))).toThrow('备份文件格式不正确');
+    }
+    expect(parseBackup(createBackup([{ ...completedNight, startAt: '2026-02-28T23:59:59Z' }])).segments[0].startAt).toBe('2026-02-28T23:59:59Z');
+    expect(parseBackup(createBackup([{ ...completedNight, startAt: '2026-01-01T12:34:56.123+08:00' }])).segments[0].startAt).toBe('2026-01-01T12:34:56.123+08:00');
+  });
+
   it('deduplicates exact records but stops on same-id conflicts', () => {
     expect(mergeBackup([completedNight], [completedNight])).toEqual({ merged: [completedNight], conflicts: [] });
     const duplicateWithNewId = { ...completedNight, id: 'imported-copy' };
