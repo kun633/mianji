@@ -80,6 +80,53 @@ describe('SleepService', () => {
     expect(await repo.get(undone.id)).toBeUndefined();
   });
 
+  it('keeps a changed completed record when the backup is rejected', async () => {
+    const completed = await service.start('nap');
+    clock.advanceHours(1);
+    await service.wake();
+    backupTrigger.run.mockRejectedValue(new Error('backup failed'));
+
+    const changed = await service.changeKind(completed.id, 'night');
+
+    expect(await repo.get(completed.id)).toEqual(changed);
+    expect(changed.status).toBe('completed');
+    expect(changed.kind).toBe('night');
+  });
+
+  it('keeps a completed-record deletion when the backup is rejected', async () => {
+    const completed = await service.start('nap');
+    clock.advanceHours(1);
+    await service.wake();
+    backupTrigger.run.mockRejectedValue(new Error('backup failed'));
+
+    await service.deleteSegment(completed.id);
+
+    expect(await repo.get(completed.id)).toBeUndefined();
+  });
+
+  it('keeps an uncertain finish when the backup is rejected', async () => {
+    const active = await service.start('night');
+    clock.advanceHours(21);
+    backupTrigger.run.mockRejectedValue(new Error('backup failed'));
+
+    const ended = await service.resolveOverlong('finish-uncertain');
+
+    expect(ended?.status).toBe('uncertain');
+    expect(ended?.uncertainReason).toBe('over-20-hours');
+    expect(await repo.get(active.id)).toEqual(ended);
+  });
+
+  it('keeps an overlong-record deletion when the backup is rejected', async () => {
+    const active = await service.start('night');
+    clock.advanceHours(21);
+    backupTrigger.run.mockRejectedValue(new Error('backup failed'));
+
+    await service.resolveOverlong('delete');
+
+    expect(await repo.get(active.id)).toBeUndefined();
+    expect(await service.getActive()).toBeUndefined();
+  });
+
   it('marks a 20-hour active record uncertain only after user confirmation', async () => {
     await service.start('night');
     clock.advanceHours(21);
