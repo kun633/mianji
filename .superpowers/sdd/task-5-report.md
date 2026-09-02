@@ -12,13 +12,16 @@
 
 本次审查修复了 CSS 静态打包、同 groupId 夜间多段汇总，以及刷新时 active/最近完成状态恢复；新增了对应回归测试。
 
+本次复审修复了初始化恢复对 `uncertain` 完成记录的遗漏，超长记录刷新后继续恢复为 finished，并保留现有撤销与夜间续睡行为。
+
 ## 验证
 
-- `npm test -- src/components/components.test.tsx`：1 个文件，11/11 测试通过
-- `npm test`：6 个文件，48/48 测试通过
+- `npm test -- src/components/components.test.tsx`：1 个文件，12/12 测试通过
+- `npm test`：6 个文件，49/49 测试通过
 - `npm run build`：TypeScript 检查与 Vite 生产构建成功，产出 `dist/assets/index-BmPKSEpH.css`
 
 ## 提交
 
 - `911cfa7 feat: add focused sleep recording interface`
 - `454823e fix: address Task 5 review findings`
+- `uncertain` 恢复修复提交：见本次最新提交
