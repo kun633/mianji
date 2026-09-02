@@ -1,0 +1,20 @@
+:root { --ink: #263141; --muted: #758299; --surface: #f5f7fb; --card: #fff; --night: #354c89; --night-soft: #e7ecf9; --nap: #e3aa58; --nap-soft: #fff0d2; --danger: #a94747; --line: #e1e6ef; --focus: #2257c7; font-family: "Noto Sans SC", "Microsoft YaHei", system-ui, sans-serif; }
+* { box-sizing: border-box; }
+body { margin: 0; min-width: 320px; min-height: 100dvh; color: var(--ink); background: var(--surface); }
+button { min-height: 44px; padding: .65rem 1rem; border: 1px solid var(--line); border-radius: 999px; color: var(--ink); background: var(--card); font: inherit; cursor: pointer; }
+button:focus-visible { outline: 3px solid var(--focus); outline-offset: 3px; }
+.today-page { min-height: 100dvh; padding: calc(1rem + env(safe-area-inset-top)) 1rem calc(1.5rem + env(safe-area-inset-bottom)); display: grid; place-items: center; }
+.today-state { width: min(100%, 25rem); min-height: 31rem; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 1rem; text-align: center; }
+.eyebrow { margin: 0; color: var(--muted); font-size: .9rem; letter-spacing: .08em; }
+h1, h2, p { margin: 0; } h1 { font-size: clamp(1.45rem, 7vw, 2rem); } h2 { font-size: 1.2rem; }
+.supporting-text { color: var(--muted); } .elapsed { font-size: clamp(2.2rem, 13vw, 3.8rem); font-weight: 700; color: var(--night); }
+.primary-circle { width: min(58vw, 13rem); height: min(58vw, 13rem); min-height: 0; border: 0; color: #fff; background: var(--night); box-shadow: 0 1rem 2rem #354c8930; font-size: 1.25rem; }
+.active-circle { background: var(--nap); } .secondary-actions, .dialog-actions, .type-options { display: flex; flex-wrap: wrap; justify-content: center; gap: .75rem; }
+.secondary-actions button { color: var(--night); background: transparent; } .summary-card { width: 100%; display: grid; gap: .45rem; padding: 1.4rem; border: 1px solid var(--line); border-radius: 1.25rem; background: var(--card); } .summary-card strong { font-size: 2rem; color: var(--night); }
+.backup-warning { color: var(--danger); font-size: .9rem; }
+.modal-backdrop { position: fixed; inset: 0; z-index: 2; display: grid; align-items: end; background: #26314166; }
+.bottom-sheet, .dialog { width: min(100%, 30rem); padding: 1.5rem 1rem calc(1.5rem + env(safe-area-inset-bottom)); border-radius: 1.5rem 1.5rem 0 0; background: var(--card); box-shadow: 0 -1rem 3rem #26314126; } .bottom-sheet h2, .dialog h2 { margin-bottom: 1rem; text-align: center; }
+.type-button { flex: 1 1 9rem; min-height: 5rem; font-weight: 700; } .night-button { color: var(--night); background: var(--night-soft); } .nap-button { color: #815a1f; background: var(--nap-soft); }
+.dialog { align-self: center; justify-self: center; border-radius: 1.25rem; padding: 1.5rem; } .dialog p { margin-bottom: 1.25rem; text-align: center; color: var(--muted); } .dialog-actions button { flex: 1; } .danger-button { color: #fff; border-color: var(--danger); background: var(--danger); }
+.overlong-dialog { display: grid; gap: .75rem; } .overlong-dialog button { width: 100%; }
+@media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation-duration: .01ms !important; transition-duration: .01ms !important; } }
