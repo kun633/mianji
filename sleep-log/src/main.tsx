@@ -1,9 +1,6 @@
 import { createRoot } from 'react-dom/client';
 import App from './App';
-
-const stylesheet = document.createElement('link');
-stylesheet.rel = 'stylesheet';
-stylesheet.href = '/src/styles.css';
-document.head.appendChild(stylesheet);
+// @ts-expect-error Vite bundles CSS imports; the app has no CSS module declarations.
+import './styles.css';
 
 createRoot(document.getElementById('root')!).render(<App />);

@@ -1,6 +1,7 @@
 import '@testing-library/jest-dom/vitest';
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { loadTodayModel } from '../App';
 import { TodayPage, type TodayActions, type TodayModel } from './TodayPage';
 import type { SleepSegment } from '../domain/sleep';
 
@@ -100,6 +101,14 @@ describe('TodayPage', () => {
     expect(actions.continueNight).toHaveBeenCalledWith('segment-1');
   });
 
+  it('includes every completed segment in the night group total', () => {
+    const actions = makeActions();
+    const second = makeSegment({ id: 'segment-2', startAt: '2026-09-03T07:00:00.000Z', endAt: '2026-09-03T08:30:00.000Z', finishedAt: '2026-09-03T08:30:00.000Z', updatedAt: '2026-09-03T08:30:00.000Z' });
+    render(<TodayPage model={{ ...completedModel, groupSegments: [completedModel.segment, second] }} actions={actions} />);
+    expect(screen.getByText('2 段合计')).toBeInTheDocument();
+    expect(screen.getByText('10小时0分')).toBeInTheDocument();
+  });
+
   it('does not offer continue-night for a finished nap', () => {
     const actions = makeActions();
     render(<TodayPage model={{ ...completedModel, segment: makeSegment({ kind: 'nap', groupId: null }) }} actions={actions} />);
@@ -115,5 +124,29 @@ describe('TodayPage', () => {
     expect(actions.resolveOverlong).toHaveBeenCalledWith('delete');
     fireEvent.click(screen.getByRole('button', { name: '继续记录' }));
     expect(actions.resolveOverlong).toHaveBeenCalledWith('continue');
+  });
+
+  it('restores an active record instead of showing idle during initialization', async () => {
+    const active = makeSegment({ endAt: null, finishedAt: null, status: 'active' });
+    const service = { getActive: vi.fn().mockResolvedValue(active), isOverlong: vi.fn().mockReturnValue(false) };
+    const repository = { list: vi.fn().mockResolvedValue([active]) };
+    const model = await loadTodayModel(service, repository, Date.parse('2026-09-03T06:30:00.000Z'));
+    expect(model.state).toBe('active');
+    expect(model.state === 'active' && model.segment.id).toBe('segment-1');
+  });
+
+  it('restores the latest finished record with its same-group segments and undo window', async () => {
+    const older = makeSegment({ id: 'older', groupId: 'old-night', endAt: '2026-09-02T23:00:00.000Z', finishedAt: '2026-09-02T23:00:00.000Z', updatedAt: '2026-09-02T23:00:00.000Z' });
+    const latest = makeSegment({ id: 'latest', startAt: '2026-09-03T05:00:00.000Z', endAt: '2026-09-03T06:00:00.000Z', finishedAt: '2026-09-03T06:00:00.000Z', updatedAt: '2026-09-03T06:00:00.000Z' });
+    const sameNight = makeSegment({ id: 'same-night', startAt: '2026-09-03T06:30:00.000Z', endAt: '2026-09-03T07:30:00.000Z', finishedAt: '2026-09-03T07:30:00.000Z', updatedAt: '2026-09-03T07:30:00.000Z' });
+    const service = { getActive: vi.fn().mockResolvedValue(undefined), isOverlong: vi.fn().mockReturnValue(false) };
+    const repository = { list: vi.fn().mockResolvedValue([older, latest, sameNight]) };
+    const model = await loadTodayModel(service, repository, Date.parse('2026-09-03T07:30:30.000Z'));
+    expect(model.state).toBe('finished');
+    if (model.state === 'finished') {
+      expect(model.segment.id).toBe('same-night');
+      expect(model.groupSegments.map((segment) => segment.id)).toEqual(['latest', 'same-night']);
+      expect(model.undoUntil).toBe('2026-09-03T07:31:00.000Z');
+    }
   });
 });
