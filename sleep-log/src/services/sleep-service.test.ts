@@ -229,4 +229,27 @@ describe('SleepService', () => {
     await service.resolveOverlong('delete');
     expect(await service.getActive()).toBeUndefined();
   });
+
+  it('resumes a finished segment back into active mode', async () => {
+    const night = await service.start('night');
+    clock.advanceHours(7);
+    await service.wake();
+    expect(await service.getActive()).toBeUndefined();
+
+    const resumed = await service.resumeActive(night.id);
+    expect(resumed.status).toBe('active');
+    expect(resumed.endAt).toBeNull();
+    expect(await service.getActive()).toEqual(resumed);
+  });
+
+  it('extends a wake time to now for a completed segment', async () => {
+    const night = await service.start('night');
+    clock.advanceHours(7);
+    await service.wake();
+
+    clock.advanceHours(2);
+    const extended = await service.extendWake(night.id);
+    expect(extended.status).toBe('completed');
+    expect(extended.endAt).toBe(clock.nowIso());
+  });
 });

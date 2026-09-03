@@ -44,6 +44,39 @@ export function markUncertain(segment: SleepSegment, reason: string): SleepSegme
   return { ...segment, status: 'uncertain', uncertainReason: reason, updatedAt: segment.endAt };
 }
 
+export function resumeSegment(segment: SleepSegment, now: string): SleepSegment {
+  if (segment.status !== 'completed' && segment.status !== 'uncertain') {
+    throw new Error('只有已完成的记录可以恢复为记录中');
+  }
+  return {
+    ...segment,
+    endAt: null,
+    endTimezone: null,
+    status: 'active',
+    finishedAt: null,
+    uncertainReason: null,
+    updatedAt: now,
+  };
+}
+
+export function extendWake(segment: SleepSegment, now: string, timezone: string): SleepSegment {
+  if (segment.status !== 'completed' && segment.status !== 'uncertain') {
+    throw new Error('记录尚未完成');
+  }
+  if (Date.parse(now) < Date.parse(segment.startAt)) {
+    throw new Error('当前时间早于开始时间');
+  }
+  return {
+    ...segment,
+    endAt: now,
+    endTimezone: timezone,
+    status: 'completed',
+    finishedAt: now,
+    updatedAt: now,
+  };
+}
+
 export function durationMs(segment: SleepSegment): number | null {
   return segment.endAt ? Math.max(0, Date.parse(segment.endAt) - Date.parse(segment.startAt)) : null;
 }
+

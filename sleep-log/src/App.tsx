@@ -1,4 +1,4 @@
-﻿import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
   AutoBackupTrigger,
   BrowserFileBackup,
@@ -143,6 +143,22 @@ export default function App() {
     return () => window.clearTimeout(timer);
   }, [appError]);
 
+  useEffect(() => {
+    if (navigator.storage?.persisted) {
+      navigator.storage.persisted().then(async (persisted) => {
+        setIsPersistent(persisted);
+        if (!persisted && navigator.storage?.persist) {
+          try {
+            const granted = await navigator.storage.persist();
+            if (granted) setIsPersistent(true);
+          } catch {
+            // Silently ignore if browser requires user gesture
+          }
+        }
+      }).catch(() => undefined);
+    }
+  }, []);
+
   const refreshData = async () => {
     try {
       const list = await repository.list();
@@ -214,6 +230,23 @@ export default function App() {
         overlong: service.isOverlong(segment),
         backupWarning: null,
       });
+      await refreshData();
+    },
+    resumeActive: async (id) => {
+      const segment = await runMutation(() => service.resumeActive(id));
+      if (!segment) return;
+      setModel({
+        state: 'active',
+        segment,
+        elapsedMs: Math.max(0, Date.now() - Date.parse(segment.startAt)),
+        overlong: service.isOverlong(segment),
+        backupWarning: null,
+      });
+      await refreshData();
+    },
+    extendWake: async (id) => {
+      const segment = await runMutation(() => service.extendWake(id));
+      if (!segment) return;
       await refreshData();
     },
     continueNight: async (id) => {

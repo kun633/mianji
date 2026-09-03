@@ -1,4 +1,4 @@
-﻿import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { SleepKind, SleepSegment } from '../domain/sleep';
 import { formatDuration } from '../domain/stats';
 
@@ -13,6 +13,8 @@ export interface TodayActions {
   cancel(): Promise<void>;
   wake(): Promise<void>;
   undoWake(id: string): Promise<void>;
+  resumeActive(id: string): Promise<void>;
+  extendWake(id: string): Promise<void>;
   continueNight(id: string): Promise<void>;
   resolveOverlong(action: 'finish-uncertain' | 'delete' | 'continue'): Promise<void>;
 }
@@ -304,6 +306,7 @@ export function OverlongDialog({ actions }: { actions: TodayActions }) {
 
 export function FinishedView({ model, actions }: { model: Extract<TodayModel, { state: 'finished' }>; actions: TodayActions }) {
   const [chooserOpen, setChooserOpen] = useState(false);
+  const [confirmation, setConfirmation] = useState<'resume' | 'extend' | null>(null);
   const newSleepButtonRef = useRef<HTMLButtonElement>(null);
   const [now, setNow] = useState(() => Date.now());
 
@@ -313,6 +316,7 @@ export function FinishedView({ model, actions }: { model: Extract<TodayModel, { 
   }, []);
 
   const canUndo = model.segment.status === 'completed' && Boolean(model.undoUntil) && Date.parse(model.undoUntil) >= now;
+  const isRecentFinish = Boolean(model.segment.finishedAt) && (now - Date.parse(model.segment.finishedAt!)) < 12 * 3600 * 1000;
   const totalMs = model.groupSegments.reduce(
     (total, segment) => total + (segment.endAt ? Math.max(0, Date.parse(segment.endAt) - Date.parse(segment.startAt)) : 0),
     0
@@ -331,6 +335,16 @@ export function FinishedView({ model, actions }: { model: Extract<TodayModel, { 
       </div>
       <div className="secondary-actions">
         {canUndo && <button type="button" onClick={() => void actions.undoWake(model.segment.id)}>撤销起床</button>}
+        {isRecentFinish && !canUndo && (
+          <>
+            <button type="button" onClick={() => setConfirmation('extend')}>
+              接续睡到现在
+            </button>
+            <button type="button" onClick={() => setConfirmation('resume')}>
+              误按起床，继续睡觉
+            </button>
+          </>
+        )}
         {model.segment.kind === 'night' && <button type="button" onClick={() => void actions.continueNight(model.segment.id)}>再睡一段</button>}
         <button ref={newSleepButtonRef} type="button" onClick={() => setChooserOpen(true)}>记录新的睡眠</button>
       </div>
@@ -340,6 +354,30 @@ export function FinishedView({ model, actions }: { model: Extract<TodayModel, { 
           openerRef={newSleepButtonRef}
           onStart={actions.start}
           onClose={() => setChooserOpen(false)}
+        />
+      )}
+      {confirmation === 'extend' && (
+        <ConfirmDialog
+          title="接续睡到现在？"
+          body={`将起床时间更新为现在（${formatTime(new Date().toISOString())}），误按起床后接着睡的时间将自动补齐计入本次睡眠。`}
+          confirmLabel="确认更新"
+          onCancel={() => setConfirmation(null)}
+          onConfirm={() => {
+            setConfirmation(null);
+            void actions.extendWake(model.segment.id);
+          }}
+        />
+      )}
+      {confirmation === 'resume' && (
+        <ConfirmDialog
+          title="继续睡觉？"
+          body="将清除之前的起床时间，重新恢复为“记录中”状态，直到您下一次真正睡醒点击起床。"
+          confirmLabel="确认恢复记录"
+          onCancel={() => setConfirmation(null)}
+          onConfirm={() => {
+            setConfirmation(null);
+            void actions.resumeActive(model.segment.id);
+          }}
         />
       )}
     </div>

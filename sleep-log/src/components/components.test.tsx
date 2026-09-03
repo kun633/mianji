@@ -31,6 +31,8 @@ const makeActions = (): TodayActions => ({
   cancel: vi.fn().mockResolvedValue(undefined),
   wake: vi.fn().mockResolvedValue(undefined),
   undoWake: vi.fn().mockResolvedValue(undefined),
+  resumeActive: vi.fn().mockResolvedValue(undefined),
+  extendWake: vi.fn().mockResolvedValue(undefined),
   continueNight: vi.fn().mockResolvedValue(undefined),
   resolveOverlong: vi.fn().mockResolvedValue(undefined),
 });
@@ -157,6 +159,31 @@ describe('TodayPage', () => {
       />
     );
     expect(screen.queryByRole('button', { name: '再睡一段' })).not.toBeInTheDocument();
+  });
+
+  it('offers extend-wake and resume-active after undo window expires and confirms them', () => {
+    const actions = makeActions();
+    const expiredFinishedModel: TodayModel = {
+      ...completedModel,
+      undoUntil: '2020-01-01T00:00:00.000Z',
+      segment: makeSegment({ finishedAt: new Date(Date.now() - 3600_000).toISOString() }),
+    };
+
+    const { rerender } = render(<TodayPage model={expiredFinishedModel} actions={actions} />);
+    expect(screen.queryByRole('button', { name: '撤销起床' })).not.toBeInTheDocument();
+
+    // Test extend wake
+    fireEvent.click(screen.getByRole('button', { name: '接续睡到现在' }));
+    expect(screen.getByText('接续睡到现在？')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '确认更新' }));
+    expect(actions.extendWake).toHaveBeenCalledWith('segment-1');
+
+    // Test resume active
+    rerender(<TodayPage model={expiredFinishedModel} actions={actions} />);
+    fireEvent.click(screen.getByRole('button', { name: '误按起床，继续睡觉' }));
+    expect(screen.getByText('继续睡觉？')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '确认恢复记录' }));
+    expect(actions.resumeActive).toHaveBeenCalledWith('segment-1');
   });
 
   it('starts a fresh night or nap from a finished nap while keeping continue-night night-only', async () => {

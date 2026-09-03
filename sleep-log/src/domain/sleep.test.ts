@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   createSegment, durationMs, finishSegment, markUncertain,
-  resetStart, undoFinish,
+  resetStart, undoFinish, resumeSegment, extendWake,
 } from './sleep';
 import type { SleepKind, SleepSegment } from './sleep';
 import { buildStats } from './stats';
@@ -50,6 +50,26 @@ describe('sleep state transitions', () => {
     const uncertain = markUncertain(finishSegment(active, '2026-09-02T06:00:00.000Z', 'Asia/Shanghai'), 'forgot-to-stop');
     expect(uncertain.status).toBe('uncertain');
     expect(durationMs(uncertain)).toBe(3_600_000);
+  });
+
+  it('resumes a completed segment back into active mode', () => {
+    const active = createSegment({ id: 'seg-resume', kind: 'night', groupId: 'g-res', now: '2026-09-02T15:00:00.000Z', timezone: 'Asia/Shanghai' });
+    const done = finishSegment(active, '2026-09-02T22:00:00.000Z', 'Asia/Shanghai');
+    const resumed = resumeSegment(done, '2026-09-02T23:00:00.000Z');
+    expect(resumed.status).toBe('active');
+    expect(resumed.endAt).toBeNull();
+    expect(resumed.finishedAt).toBeNull();
+    expect(resumed.startAt).toBe('2026-09-02T15:00:00.000Z');
+  });
+
+  it('extends wake time to now for a completed segment', () => {
+    const active = createSegment({ id: 'seg-ext', kind: 'night', groupId: 'g-ext', now: '2026-09-02T15:00:00.000Z', timezone: 'Asia/Shanghai' });
+    const done = finishSegment(active, '2026-09-02T22:00:00.000Z', 'Asia/Shanghai');
+    const extended = extendWake(done, '2026-09-03T00:30:00.000Z', 'Asia/Shanghai');
+    expect(extended.status).toBe('completed');
+    expect(extended.endAt).toBe('2026-09-03T00:30:00.000Z');
+    expect(extended.finishedAt).toBe('2026-09-03T00:30:00.000Z');
+    expect(durationMs(extended)).toBe(34_200_000);
   });
 });
 

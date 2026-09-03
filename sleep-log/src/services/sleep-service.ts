@@ -5,6 +5,8 @@ import {
   markUncertain,
   resetStart,
   undoFinish,
+  resumeSegment,
+  extendWake,
   type SleepKind,
   type SleepSegment,
 } from '../domain/sleep';
@@ -75,6 +77,24 @@ export class SleepService {
     await this.repo.save(undone);
     await this.triggerBackup();
     return undone;
+  }
+
+  async resumeActive(id: string) {
+    const value = await this.requireById(id);
+    const active = await this.repo.getActive();
+    if (active && active.id !== id) throw new Error('已有正在记录的睡眠');
+    const resumed = resumeSegment(value, this.clock.nowIso());
+    await this.repo.save(resumed);
+    await this.triggerBackup();
+    return resumed;
+  }
+
+  async extendWake(id: string) {
+    const value = await this.requireById(id);
+    const extended = extendWake(value, this.clock.nowIso(), this.clock.timezone());
+    await this.repo.save(extended);
+    await this.triggerBackup();
+    return extended;
   }
 
   async continueNight(previousId: string) {

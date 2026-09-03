@@ -1,4 +1,4 @@
-﻿import { useState, type ChangeEvent } from 'react';
+import { useState, useEffect, type ChangeEvent } from 'react';
 import {
   createBackup,
   mergeBackup,
@@ -50,6 +50,21 @@ export function SettingsPage({ model, timezone, actions }: SettingsPageProps) {
   const [persistentGranted, setPersistentGranted] = useState<boolean | undefined>(
     model.isPersistentStorageGranted
   );
+
+  useEffect(() => {
+    if (model.isPersistentStorageGranted !== undefined) {
+      setPersistentGranted(model.isPersistentStorageGranted);
+    }
+  }, [model.isPersistentStorageGranted]);
+
+  useEffect(() => {
+    if (navigator.storage?.persisted) {
+      navigator.storage.persisted().then((persisted) => {
+        if (persisted) setPersistentGranted(true);
+      }).catch(() => undefined);
+    }
+  }, []);
+
   const [operationMessage, setOperationMessage] = useState<string | null>(null);
 
   const showError = (error: unknown, fallback: string) => {
@@ -317,12 +332,19 @@ export function SettingsPage({ model, timezone, actions }: SettingsPageProps) {
           <h2>本地持久化存储</h2>
           <div className="storage-card">
             <p className="hint-text">
-              请求浏览器为“眠记”提供持久化存储，降低因手机空间不足被浏览器自动清理的风险。
+              请求浏览器为“眠记”锁定持久存储，防止手机在存储空间紧张时自动清除您的睡眠数据。
             </p>
             <div className="storage-status">
               <span>当前状态：</span>
-              <strong>{persistentGranted ? '已开启持久化存储' : '未开启持久化存储'}</strong>
+              <strong style={{ color: persistentGranted ? 'var(--accent)' : 'inherit' }}>
+                {persistentGranted ? '✓ 已开启持久化存储（已受保护）' : '未开启持久化存储'}
+              </strong>
             </div>
+            {persistentGranted && (
+              <p className="hint-text" style={{ color: 'var(--accent)', fontWeight: 500, margin: '8px 0 0 0' }}>
+                已受持久保护：浏览器已锁定永久存储，退出应用后持续有效，数据不会被自动清理。
+              </p>
+            )}
             <button
               type="button"
               className="action-btn"
