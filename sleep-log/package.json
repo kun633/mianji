@@ -11,7 +11,7 @@
     "test:watch": "vitest",
     "test:e2e": "playwright test",
     "preview": "vite preview",
-    "check": "npm run test && npm run build && npm run test:e2e",
+    "check": "npm run test && npm run build && npm run check:web-bundle && npm run test:e2e",
     "cap:sync": "cap sync",
     "android:open": "cap open android",
     "ios:open": "cap open ios"
