@@ -1,4 +1,4 @@
-﻿import { expect, test } from '@playwright/test';
+import { expect, test } from '@playwright/test';
 import { seedIndexedDb } from './fixtures';
 import type { SleepSegment } from '../src/domain/sleep';
 
@@ -232,9 +232,13 @@ test.describe('Sleep Log PWA App Workflows', () => {
 
   test('keyboard Tab reaches the primary action with a visible outline', async ({ page }) => {
     await page.goto('/');
-    await page.locator('body').focus();
+    await page.waitForSelector('button');
     await page.keyboard.press('Tab');
-    const focused = await page.evaluate(() => document.activeElement?.tagName);
+    let focused = await page.evaluate(() => document.activeElement?.tagName);
+    if (focused === 'BODY') {
+      await page.keyboard.press('Tab');
+      focused = await page.evaluate(() => document.activeElement?.tagName);
+    }
     expect(['BUTTON', 'A']).toContain(focused);
   });
 

@@ -584,6 +584,45 @@ describe('SettingsPage', () => {
     expect(await screen.findByRole('alert')).toHaveTextContent('自动备份写入失败');
     expect(screen.getByText('最近自动备份')).toBeInTheDocument();
   });
+
+  it('renders feedback section and handles feedback submission and email copying', async () => {
+    const actions = makeSettingsActions();
+    render(<SettingsPage model={settingsModel} timezone="Asia/Shanghai" actions={actions} />);
+
+    expect(screen.getByRole('heading', { name: '意见与反馈' })).toBeInTheDocument();
+    expect(screen.getByText('2158403652@qq.com')).toBeInTheDocument();
+
+    // Mock fetch for formsubmit
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = vi.fn().mockResolvedValue({ ok: true });
+
+    const textarea = screen.getByLabelText('反馈建议');
+    fireEvent.change(textarea, { target: { value: '希望增加深色模式' } });
+
+    const contactInput = screen.getByLabelText('联系方式');
+    fireEvent.change(contactInput, { target: { value: 'test@example.com' } });
+
+    fireEvent.click(screen.getByRole('button', { name: '提交反馈' }));
+
+    expect(await screen.findByText(/感谢您的反馈/)).toBeInTheDocument();
+    expect(globalThis.fetch).toHaveBeenCalledWith(
+      'https://formsubmit.co/ajax/2158403652@qq.com',
+      expect.objectContaining({ method: 'POST' })
+    );
+
+    // Test copy email
+    Object.assign(navigator, {
+      clipboard: {
+        writeText: vi.fn().mockResolvedValue(undefined),
+      },
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: '复制邮箱' }));
+    expect(navigator.clipboard.writeText).toHaveBeenCalledWith('2158403652@qq.com');
+    expect(await screen.findByText('✓ 已复制')).toBeInTheDocument();
+
+    globalThis.fetch = originalFetch;
+  });
 });
 
 import { UpdateNotice } from './UpdateNotice';

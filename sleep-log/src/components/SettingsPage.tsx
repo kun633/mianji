@@ -66,6 +66,72 @@ export function SettingsPage({ model, timezone, actions }: SettingsPageProps) {
   }, []);
 
   const [operationMessage, setOperationMessage] = useState<string | null>(null);
+  const [feedbackText, setFeedbackText] = useState('');
+  const [feedbackContact, setFeedbackContact] = useState('');
+  const [feedbackSending, setFeedbackSending] = useState(false);
+  const [feedbackStatus, setFeedbackStatus] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
+  const [copied, setCopied] = useState(false);
+
+  const handleCopyEmail = async () => {
+    try {
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText('2158403652@qq.com');
+      } else {
+        const input = document.createElement('input');
+        input.value = '2158403652@qq.com';
+        document.body.appendChild(input);
+        input.select();
+        document.execCommand('copy');
+        document.body.removeChild(input);
+      }
+      setCopied(true);
+      setTimeout(() => setCopied(false), 3000);
+    } catch {
+      setOperationMessage('复制失败，请手动复制：2158403652@qq.com');
+    }
+  };
+
+  const handleFeedbackSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!feedbackText.trim()) return;
+
+    setFeedbackSending(true);
+    setFeedbackStatus(null);
+
+    try {
+      const res = await fetch('https://formsubmit.co/ajax/2158403652@qq.com', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Accept: 'application/json',
+        },
+        body: JSON.stringify({
+          '反馈建议': feedbackText.trim(),
+          '联系方式': feedbackContact.trim() || '未填写',
+          '提交时刻': new Date().toLocaleString('zh-CN'),
+          _subject: '【眠记】收到新用户反馈',
+        }),
+      });
+
+      if (res.ok) {
+        setFeedbackStatus({
+          type: 'success',
+          message: '✓ 感谢您的反馈！内容已成功推送到作者邮箱。',
+        });
+        setFeedbackText('');
+        setFeedbackContact('');
+      } else {
+        throw new Error('发送未成功');
+      }
+    } catch {
+      setFeedbackStatus({
+        type: 'error',
+        message: '网络发送未成功，您可直接复制下方 QQ 邮箱与作者联系。',
+      });
+    } finally {
+      setFeedbackSending(false);
+    }
+  };
 
   const showError = (error: unknown, fallback: string) => {
     setOperationMessage(error instanceof Error ? error.message : fallback);
@@ -352,6 +418,69 @@ export function SettingsPage({ model, timezone, actions }: SettingsPageProps) {
             >
               请求持久化存储
             </button>
+          </div>
+        </section>
+
+        {/* 意见与反馈 */}
+        <section className="settings-section" aria-label="意见与反馈">
+          <h2>意见与反馈</h2>
+          <div className="feedback-card">
+            <p className="hint-text">
+              “眠记”由作者独立开发。如果您遇到使用痛点、Bug 或有任何功能建议，欢迎随时反馈，作者会在第一时间跟进！
+            </p>
+            <form className="feedback-form" onSubmit={(e) => void handleFeedbackSubmit(e)}>
+              <textarea
+                className="feedback-textarea"
+                rows={3}
+                placeholder="写下您的建议、吐槽或遇到的问题..."
+                value={feedbackText}
+                onChange={(e) => setFeedbackText(e.target.value)}
+                required
+                aria-label="反馈建议"
+              />
+              <input
+                type="text"
+                className="feedback-contact-input"
+                placeholder="您的联系方式（选填，如微信号/QQ/邮箱，方便回复）"
+                value={feedbackContact}
+                onChange={(e) => setFeedbackContact(e.target.value)}
+                aria-label="联系方式"
+              />
+              <button
+                type="submit"
+                className="action-btn primary-action-btn feedback-submit-btn"
+                disabled={feedbackSending || !feedbackText.trim()}
+              >
+                {feedbackSending ? '正在发送中...' : '提交反馈'}
+              </button>
+            </form>
+            {feedbackStatus && (
+              <p
+                className={feedbackStatus.type === 'success' ? 'feedback-success-text' : 'error-text'}
+                role="alert"
+              >
+                {feedbackStatus.message}
+              </p>
+            )}
+            <div className="feedback-direct-contact">
+              <span className="hint-text">或直接联系作者 QQ 邮箱：</span>
+              <div className="email-badge-row">
+                <code className="email-code">2158403652@qq.com</code>
+                <button
+                  type="button"
+                  className="copy-email-btn"
+                  onClick={() => void handleCopyEmail()}
+                >
+                  {copied ? '✓ 已复制' : '复制邮箱'}
+                </button>
+                <a
+                  href="mailto:2158403652@qq.com?subject=【眠记】睡眠记录使用反馈"
+                  className="mailto-link-btn"
+                >
+                  发送邮件
+                </a>
+              </div>
+            </div>
           </div>
         </section>
 
