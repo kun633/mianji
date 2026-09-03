@@ -682,6 +682,13 @@ describe('SettingsPage', () => {
 
     globalThis.fetch = originalFetch;
   });
+
+  it('explains exactly what feedback submission sends', () => {
+    render(<SettingsPage model={settingsModel} timezone="Asia/Shanghai" actions={makeSettingsActions()} />);
+
+    expect(screen.getByText(/不会附带或上传睡眠记录/)).toBeInTheDocument();
+    expect(screen.getByText(/第三方邮件转发服务/)).toBeInTheDocument();
+  });
 });
 
 import { UpdateNotice } from './UpdateNotice';

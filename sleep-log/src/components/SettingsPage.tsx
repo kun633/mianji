@@ -453,6 +453,9 @@ export function SettingsPage({ model, timezone, actions }: SettingsPageProps) {
             <p className="hint-text">
               “眠记”由作者独立开发。如果您遇到使用痛点、Bug 或有任何功能建议，欢迎随时反馈，作者会在第一时间跟进！
             </p>
+            <p className="hint-text">
+              仅在您点击提交时，反馈内容、选填联系方式和提交时间会发送至第三方邮件转发服务；不会附带或上传睡眠记录。
+            </p>
             <form className="feedback-form" onSubmit={(e) => void handleFeedbackSubmit(e)}>
               <textarea
                 className="feedback-textarea"
