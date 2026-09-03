@@ -47,21 +47,19 @@ jobs:
           touch android/app/src/main/assets/public/cordova.js
           touch android/app/src/main/assets/public/cordova_plugins.js
 
-      - name: Setup Android SDK licenses and platforms
+      - name: Accept Android SDK licenses
         run: |
           yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses || true
-          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-36" "build-tools;36.0.0" || true
 
       - name: Build Debug APK
         run: |
           cd android
-          ./gradlew assembleDebug --stacktrace 2>&1 | tee ../gradle.log
+          ./gradlew :app:assembleDebug --stacktrace
 
       - name: Locate and stage APK
-        if: success()
         run: |
           mkdir -p ../dist-apk
-          find . -name "*.apk" -exec cp -v {} ../dist-apk/ \;
+          cp -v android/app/build/outputs/apk/debug/*.apk ../dist-apk/
           ls -la ../dist-apk
 
       - name: Upload APK Artifact
