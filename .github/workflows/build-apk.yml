@@ -65,7 +65,7 @@ jobs:
       - name: Locate and stage APK
         run: |
           mkdir -p ../dist-apk
-          cp -v android/app/build/outputs/apk/debug/*.apk ../dist-apk/
+          find android -type f -name "*.apk" -exec cp -v {} ../dist-apk/ \;
           ls -la ../dist-apk
 
       - name: Upload APK Artifact
