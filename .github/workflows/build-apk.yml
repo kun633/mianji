@@ -57,17 +57,17 @@ jobs:
           cd android
           ./gradlew assembleDebug --stacktrace 2>&1 | tee ../gradle.log
 
-      - name: Upload Gradle Log
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: gradle-build-log
-          path: sleep-log/gradle.log
+      - name: Locate and stage APK
+        if: success()
+        run: |
+          mkdir -p ../dist-apk
+          find . -name "*.apk" -exec cp -v {} ../dist-apk/ \;
+          ls -la ../dist-apk
 
       - name: Upload APK Artifact
         if: success()
         uses: actions/upload-artifact@v4
         with:
           name: mianji-sleep-debug-apk
-          path: sleep-log/android/app/build/outputs/apk/**/*.apk
+          path: dist-apk/*.apk
           if-no-files-found: error
