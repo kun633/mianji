@@ -31,7 +31,7 @@ function createInMemorySqliteAdapter(): SqliteAdapter {
           finishedAt: values?.[11],
           schemaVersion: values?.[12],
         };
-        store.set(seg.id, seg);
+        store.set(String(seg.id), seg);
         return;
       }
     },
@@ -59,19 +59,17 @@ describe('NativeSqliteSleepRepository', () => {
   const activeNight: SleepSegment = createSegment({
     id: 'night-1',
     kind: 'night',
-    startAt: '2026-09-02T14:00:00.000Z',
-    startTimezone: 'Asia/Shanghai',
-    createdAt: '2026-09-02T14:00:00.000Z',
-    updatedAt: '2026-09-02T14:00:00.000Z',
+    groupId: null,
+    now: '2026-09-02T14:00:00.000Z',
+    timezone: 'Asia/Shanghai',
   });
 
   const activeNap: SleepSegment = createSegment({
     id: 'nap-1',
     kind: 'nap',
-    startAt: '2026-09-03T05:00:00.000Z',
-    startTimezone: 'Asia/Shanghai',
-    createdAt: '2026-09-03T05:00:00.000Z',
-    updatedAt: '2026-09-03T05:00:00.000Z',
+    groupId: null,
+    now: '2026-09-03T05:00:00.000Z',
+    timezone: 'Asia/Shanghai',
   });
 
   it('persists an active record and prevents a second active record', async () => {

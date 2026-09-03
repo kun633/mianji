@@ -18,6 +18,7 @@ import { HistoryPage, type HistoryActions } from './components/HistoryPage';
 import { SettingsPage, type SettingsActions, type SettingsModel } from './components/SettingsPage';
 import { UpdateNotice } from './components/UpdateNotice';
 import { registerAppServiceWorker } from './pwa/register';
+import { publishWidgetState } from './native/widget-bridge';
 
 const timezone = () => Intl.DateTimeFormat().resolvedOptions().timeZone || 'Asia/Shanghai';
 const clock = { nowIso: () => new Date().toISOString(), timezone };
@@ -165,6 +166,39 @@ export default function App({ initialRepository }: { initialRepository?: SleepRe
   useEffect(() => {
     void refreshData();
   }, [service, repository, tick]);
+
+  useEffect(() => {
+    if (!model) return;
+    if (model.state === 'active') {
+      const elapsedMinutes = Math.floor((Date.now() - Date.parse(model.segment.startAt)) / 60000);
+      const hours = Math.floor(elapsedMinutes / 60);
+      const minutes = elapsedMinutes % 60;
+      const timeStr = hours > 0 ? `${hours}小时${minutes}分` : `${minutes}分钟`;
+      void publishWidgetState({
+        state: 'active',
+        headline: model.segment.kind === 'night' ? '夜间睡眠中' : '午睡中',
+        subline: `已睡 ${timeStr}`,
+        actionType: 'wake',
+        updatedAt: clock.nowIso(),
+      });
+    } else if (model.state === 'finished') {
+      void publishWidgetState({
+        state: 'finished',
+        headline: '刚睡醒',
+        subline: '睡眠已结束',
+        actionType: 'view',
+        updatedAt: clock.nowIso(),
+      });
+    } else {
+      void publishWidgetState({
+        state: 'idle',
+        headline: '准备入睡',
+        subline: '点击开始记录睡眠',
+        actionType: 'start',
+        updatedAt: clock.nowIso(),
+      });
+    }
+  }, [model]);
 
   const todayActions: TodayActions = {
     start: async (kind) => {
