@@ -54,27 +54,16 @@ jobs:
       - name: Build Debug APK
         run: |
           cd android
-          if ! ./gradlew :app:assembleDebug --stacktrace 2>&1 | tee ../gradle_output.log; then
-            echo "::error::=== GRADLE BUILD FAILED ==="
-            tail -n 60 ../gradle_output.log | while IFS= read -r line; do
-              echo "::error title=Gradle::$line"
-            done
-            exit 1
-          fi
+          ./gradlew :app:assembleDebug --stacktrace
 
       - name: Locate and stage APK
         run: |
           mkdir -p ../dist-apk
-          find android -name "*.apk" -exec cp -f {} ../dist-apk/ \;
+          cp -v android/app/build/outputs/apk/debug/*.apk ../dist-apk/
           ls -la ../dist-apk
-          if [ -z "$(ls -A ../dist-apk)" ]; then
-            echo "::error::dist-apk is empty! All files in android/app/build:"
-            find android/app/build -maxdepth 5 | head -n 100
-            exit 1
-          fi
 
       - name: Upload APK Artifact
         uses: actions/upload-artifact@v4
         with:
           name: mianji-sleep-debug-apk
-          path: dist-apk/
+          path: dist-apk/*.apk
