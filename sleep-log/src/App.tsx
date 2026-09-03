@@ -72,8 +72,8 @@ export async function loadTodayModel(
 
 export type TabKey = 'today' | 'history' | 'settings';
 
-export default function App() {
-  const repository = useMemo(() => new IndexedDbSleepRepository(), []);
+export default function App({ initialRepository }: { initialRepository?: SleepRepository } = {}) {
+  const repository = useMemo(() => initialRepository ?? new IndexedDbSleepRepository(), [initialRepository]);
   const settingsRepository = useMemo(() => new IndexedDbBackupSettingsRepository(), []);
   const fileBackup = useMemo(() => new BrowserFileBackup(window), []);
   const backupTrigger = useMemo(
