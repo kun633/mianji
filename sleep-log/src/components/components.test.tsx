@@ -45,9 +45,9 @@ const makeHistoryActions = (): HistoryActions => ({
 const makeSettingsActions = (): SettingsActions => ({
   chooseFolder: vi.fn().mockResolvedValue(undefined),
   exportJson: vi.fn().mockResolvedValue(undefined),
-  exportCsv: vi.fn(),
+  exportCsv: vi.fn().mockResolvedValue(undefined),
   restore: vi.fn().mockResolvedValue(undefined),
-  requestPersistentStorage: vi.fn().mockResolvedValue(true),
+  requestStorageProtection: vi.fn().mockResolvedValue(undefined),
 });
 
 const idleModel: TodayModel = { state: 'idle', lastNightMs: null, backupWarning: null };
@@ -480,7 +480,17 @@ describe('SettingsPage', () => {
       message: null,
     },
     segments: [sampleSegment],
+    storageProtection: 'not-granted',
   };
+
+  it('describes storage protection without promising permanent storage', () => {
+    render(<SettingsPage model={settingsModel} timezone="Asia/Shanghai" actions={makeSettingsActions()} />);
+
+    expect(screen.getByRole('heading', { name: '防自动清理保护' })).toBeInTheDocument();
+    expect(screen.getByText(/不能防止主动清除网站数据/)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '请求防自动清理保护' })).toBeInTheDocument();
+    expect(screen.queryByText(/永久存储/)).not.toBeInTheDocument();
+  });
 
   it('previews a restore before applying it', async () => {
     const actions = makeSettingsActions();

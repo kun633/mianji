@@ -4,10 +4,14 @@ import {
   BrowserFileBackup,
   downloadBackup,
   IndexedDbBackupSettingsRepository,
-  requestPersistentStorage,
   type BackupCapability,
   type BackupStatus,
 } from './data/file-backup';
+import {
+  checkStorageProtection,
+  requestStorageProtection,
+  type StorageProtectionState,
+} from './data/browser-storage';
 import { createBackup, toCsv } from './data/backup';
 import { IndexedDbSleepRepository, type SleepRepository } from './data/repository';
 import type { SleepSegment } from './domain/sleep';
@@ -94,6 +98,7 @@ export default function App({ initialRepository }: { initialRepository?: SleepRe
     message: null,
   });
   const [capability, setCapability] = useState<BackupCapability>('manual-only');
+  const [storageProtection, setStorageProtection] = useState<StorageProtectionState>('checking');
   const [needRefresh, setNeedRefresh] = useState(false);
   const [updateSW, setUpdateSW] = useState<(() => Promise<void>) | null>(null);
   const [tick, setTick] = useState(0);
@@ -134,6 +139,14 @@ export default function App({ initialRepository }: { initialRepository?: SleepRe
   useEffect(() => {
     const updateFn = registerAppServiceWorker(() => setNeedRefresh(true));
     setUpdateSW(() => updateFn);
+  }, []);
+
+  useEffect(() => {
+    let active = true;
+    void checkStorageProtection().then((state) => {
+      if (active) setStorageProtection(state);
+    });
+    return () => { active = false; };
   }, []);
 
   useEffect(() => {
@@ -299,7 +312,7 @@ export default function App({ initialRepository }: { initialRepository?: SleepRe
       await settingsRepository.setStatus(status);
       setBackupStatus(status);
     },
-    exportCsv: () => {
+    exportCsv: async () => {
       const text = toCsv(segments);
       const dateStr = displayDate(clock.nowIso(), clock.timezone());
       downloadBackup(text, `眠记-睡眠记录-${dateStr}.csv`, 'text/csv;charset=utf-8');
@@ -311,7 +324,15 @@ export default function App({ initialRepository }: { initialRepository?: SleepRe
       await backupTrigger.run();
       await refreshData();
     },
-    requestPersistentStorage: async () => false,
+    requestStorageProtection: async () => {
+      try {
+        const granted = await requestStorageProtection();
+        setStorageProtection(granted ? 'granted' : 'not-granted');
+      } catch (error) {
+        setStorageProtection('unknown');
+        throw error;
+      }
+    },
   };
 
   const currentTodayDate = displayDate(clock.nowIso(), clock.timezone());
@@ -321,6 +342,7 @@ export default function App({ initialRepository }: { initialRepository?: SleepRe
     capability,
     status: backupStatus,
     segments,
+    storageProtection,
   };
 
   if (!model) {

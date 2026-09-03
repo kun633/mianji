@@ -11,6 +11,7 @@ import {
   type SleepBackup,
 } from '../data/backup';
 import type { BackupCapability, BackupStatus } from '../data/file-backup';
+import type { StorageProtectionState } from '../data/browser-storage';
 import type { SleepSegment } from '../domain/sleep';
 import { displayDate } from '../domain/stats';
 
@@ -18,15 +19,15 @@ export interface SettingsModel {
   capability: BackupCapability;
   status: BackupStatus;
   segments: SleepSegment[];
-  isPersistentStorageGranted?: boolean;
+  storageProtection: StorageProtectionState;
 }
 
 export interface SettingsActions {
   chooseFolder(): Promise<void>;
   exportJson(): Promise<void>;
-  exportCsv(): void;
+  exportCsv(): Promise<void>;
   restore(expected: SleepSegment[], segments: SleepSegment[]): Promise<void>;
-  requestPersistentStorage(): Promise<boolean>;
+  requestStorageProtection(): Promise<void>;
 }
 
 export interface SettingsPageProps {
@@ -202,6 +203,11 @@ export function SettingsPage({ model, timezone, actions }: SettingsPageProps) {
     catch (error) { showError(error, '自动备份文件夹操作失败'); }
   };
 
+  const handleRequestStorageProtection = async () => {
+    try { await actions.requestStorageProtection(); }
+    catch (error) { showError(error, '无法请求防自动清理保护'); }
+  };
+
   // Compute preview summary text
   const previewSummary = () => {
     if (!backupFile) return null;
@@ -245,6 +251,34 @@ export function SettingsPage({ model, timezone, actions }: SettingsPageProps) {
             </button>
           </div>
         )}
+
+        <section className="settings-section" aria-label="防自动清理保护">
+          <h2>防自动清理保护</h2>
+          <div className="status-card">
+            <div className="status-row">
+              <span className="status-label">当前状态</span>
+              <span>
+                {model.storageProtection === 'checking' && '正在检查浏览器保护状态…'}
+                {model.storageProtection === 'granted' && '已获得防自动清理保护'}
+                {model.storageProtection === 'not-granted' && '尚未获得防自动清理保护'}
+                {model.storageProtection === 'unsupported' && '当前浏览器不支持此项保护'}
+                {model.storageProtection === 'unknown' && '暂时无法确认保护状态'}
+              </span>
+            </div>
+            <p className="hint-text">
+              此保护只能降低浏览器因空间不足自动清理数据的风险，不能防止主动清除网站数据、卸载浏览器、换机或设备损坏。
+            </p>
+            {(model.storageProtection === 'not-granted' || model.storageProtection === 'unknown') && (
+              <button
+                type="button"
+                className="full-button primary-action-btn"
+                onClick={() => void handleRequestStorageProtection()}
+              >
+                请求防自动清理保护
+              </button>
+            )}
+          </div>
+        </section>
 
         {/* 自动备份状态与文件夹 */}
         {model.capability === 'folder-auto' && (
@@ -310,7 +344,7 @@ export function SettingsPage({ model, timezone, actions }: SettingsPageProps) {
             <button
               type="button"
               className="export-btn"
-              onClick={() => actions.exportCsv()}
+              onClick={() => void actions.exportCsv()}
             >
               导出表格 (CSV)
             </button>
