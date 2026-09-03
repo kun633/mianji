@@ -1,15 +1,43 @@
 import 'fake-indexeddb/auto';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createSegment } from '../domain/sleep';
 import {
   AutoBackupTrigger, BrowserFileBackup, IndexedDbBackupSettingsRepository,
   replaceBackupDirectory,
-  deleteBackupSettingsDatabase, type BackupStatus,
+  deleteBackupSettingsDatabase, downloadBackup, type BackupStatus,
 } from './file-backup';
 
-afterEach(async () => { await deleteBackupSettingsDatabase(); });
+afterEach(async () => {
+  vi.useRealTimers();
+  vi.restoreAllMocks();
+  vi.unstubAllGlobals();
+  await deleteBackupSettingsDatabase();
+});
 
 describe('browser file backup', () => {
+  it('attaches the link, clicks it, removes it and revokes the URL later', () => {
+    vi.useFakeTimers();
+    const createObjectUrl = vi.fn(() => 'blob:test');
+    const revokeObjectUrl = vi.fn();
+    vi.stubGlobal('URL', {
+      ...URL,
+      createObjectURL: createObjectUrl,
+      revokeObjectURL: revokeObjectUrl,
+    });
+    const click = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => undefined);
+    const append = vi.spyOn(document.body, 'appendChild');
+    const remove = vi.spyOn(HTMLElement.prototype, 'remove');
+
+    downloadBackup('{}', '眠记.json');
+
+    expect(append).toHaveBeenCalled();
+    expect(click).toHaveBeenCalledOnce();
+    expect(remove).toHaveBeenCalled();
+    expect(revokeObjectUrl).not.toHaveBeenCalled();
+    vi.advanceTimersByTime(1000);
+    expect(revokeObjectUrl).toHaveBeenCalledWith('blob:test');
+  });
+
   it('reports unsupported when no directory picker exists', () => {
     expect(new BrowserFileBackup(window).capability()).toBe('manual-only');
   });

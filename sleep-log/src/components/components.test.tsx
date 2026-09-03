@@ -578,6 +578,20 @@ describe('SettingsPage', () => {
     expect(actions.exportCsv).toHaveBeenCalledOnce();
   });
 
+  it.each([
+    ['JSON', 'exportJson', '导出完整备份 (JSON)'],
+    ['CSV', 'exportCsv', '导出表格 (CSV)'],
+  ] as const)('shows %s export failures without leaving the settings page', async (_format, actionName, buttonName) => {
+    const actions = makeSettingsActions();
+    actions[actionName] = vi.fn().mockRejectedValue(new Error('导出失败，请重试'));
+    render(<SettingsPage model={settingsModel} timezone="Asia/Shanghai" actions={actions} />);
+
+    fireEvent.click(screen.getByRole('button', { name: buttonName }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('导出失败，请重试');
+    expect(screen.getByRole('heading', { name: '数据备份与恢复' })).toBeInTheDocument();
+  });
+
   it('shows an unexported state instead of an overdue warning in manual-only browsers', () => {
     render(
       <SettingsPage
@@ -612,7 +626,7 @@ describe('SettingsPage', () => {
         actions={makeSettingsActions()}
       />
     );
-    expect(screen.getByText(/最近导出：2026年7月1日/)).toBeInTheDocument();
+    expect(screen.getByText(/最近执行导出：2026年7月1日/)).toBeInTheDocument();
     expect(screen.getByText(/距离上次备份已超过 30 天/)).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: '手机自动备份' })).toBeInTheDocument();
   });

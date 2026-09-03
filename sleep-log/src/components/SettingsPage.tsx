@@ -208,6 +208,11 @@ export function SettingsPage({ model, timezone, actions }: SettingsPageProps) {
     catch (error) { showError(error, '无法请求防自动清理保护'); }
   };
 
+  const handleExport = async (exportAction: () => Promise<void>) => {
+    try { await exportAction(); }
+    catch (error) { showError(error, '导出失败，请重试'); }
+  };
+
   // Compute preview summary text
   const previewSummary = () => {
     if (!backupFile) return null;
@@ -320,10 +325,10 @@ export function SettingsPage({ model, timezone, actions }: SettingsPageProps) {
           <h2>数据备份与恢复</h2>
           <div className="status-card" style={{ marginBottom: '1rem' }}>
             <div className="status-row">
-              <span className="status-label">导出备份状态</span>
+              <span className="status-label">外部备份状态</span>
               <span>
                 {model.status.lastManualExportAt
-                  ? `最近导出：${formatChineseDate(model.status.lastManualExportAt, timezone)}`
+                  ? `最近执行导出：${formatChineseDate(model.status.lastManualExportAt, timezone)}`
                   : '尚未导出备份'}
               </span>
             </div>
@@ -337,14 +342,14 @@ export function SettingsPage({ model, timezone, actions }: SettingsPageProps) {
             <button
               type="button"
               className="export-btn"
-              onClick={() => void actions.exportJson()}
+              onClick={() => void handleExport(actions.exportJson)}
             >
               导出完整备份 (JSON)
             </button>
             <button
               type="button"
               className="export-btn"
-              onClick={() => void actions.exportCsv()}
+              onClick={() => void handleExport(actions.exportCsv)}
             >
               导出表格 (CSV)
             </button>

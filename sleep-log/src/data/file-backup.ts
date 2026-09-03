@@ -93,7 +93,16 @@ export async function requestPersistentStorage(): Promise<boolean> {
 export function downloadBackup(text: string, filename: string, mimeType = 'application/json;charset=utf-8'): void {
   const url = URL.createObjectURL(new Blob([text], { type: mimeType }));
   const link = document.createElement('a');
-  link.href = url; link.download = filename; link.click(); URL.revokeObjectURL(url);
+  try {
+    link.href = url;
+    link.download = filename;
+    link.hidden = true;
+    document.body.appendChild(link);
+    link.click();
+  } finally {
+    link.remove();
+    window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+  }
 }
 
 export interface BackupTrigger { run(): Promise<void>; }
