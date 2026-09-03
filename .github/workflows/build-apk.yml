@@ -38,8 +38,14 @@ jobs:
       - name: Make Gradle wrapper executable
         run: chmod +x android/gradlew
 
-      - name: Sync Capacitor Android
-        run: npm run cap:sync android
+      - name: Sync assets to Android
+        run: |
+          mkdir -p android/app/src/main/assets/public
+          cp -r dist/* android/app/src/main/assets/public/
+          node -e 'require("fs").writeFileSync("android/app/src/main/assets/capacitor.config.json", JSON.stringify({appId:"com.mianji.sleep",appName:"眠记",webDir:"dist"}, null, 2))'
+          node -e 'require("fs").writeFileSync("android/app/src/main/assets/capacitor.plugins.json", JSON.stringify([{pkg:"@capacitor-community/sqlite",classpath:"com.getcapacitor.community.database.sqlite.CapacitorSQLitePlugin"}], null, 2))'
+          touch android/app/src/main/assets/public/cordova.js
+          touch android/app/src/main/assets/public/cordova_plugins.js
 
       - name: Build Debug APK
         run: |
