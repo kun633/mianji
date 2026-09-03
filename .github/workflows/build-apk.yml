@@ -35,13 +35,15 @@ jobs:
           distribution: 'zulu'
           java-version: 21
 
+      - name: Make Gradle wrapper executable
+        run: chmod +x android/gradlew
+
       - name: Sync Capacitor Android
         run: npx cap sync android
 
       - name: Build Debug APK
         run: |
           cd android
-          chmod +x gradlew
           ./gradlew assembleDebug
 
       - name: Upload APK Artifact
