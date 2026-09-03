@@ -3,7 +3,14 @@ import type { SleepRepository } from './repository';
 import { createBackup } from './backup';
 
 export type BackupCapability = 'folder-auto' | 'manual-only';
-export interface BackupStatus { state: 'ready' | 'needs-permission' | 'write-failed' | 'manual-only'; lastSuccessfulBackupAt: string | null; message: string | null; }
+export interface BackupStatus {
+  state: 'ready' | 'needs-permission' | 'write-failed' | 'manual-only';
+  lastAutomaticBackupAt?: string | null;
+  lastManualExportAt?: string | null;
+  legacyBackupAt?: string | null;
+  lastSuccessfulBackupAt?: string | null;
+  message: string | null;
+}
 export interface BackupSettingsRepository {
   getDirectory(): Promise<FileSystemDirectoryHandle | null>;
   setDirectory(handle: FileSystemDirectoryHandle): Promise<void>;
@@ -15,7 +22,14 @@ interface SettingsDb extends DBSchema {
   settings: { key: string; value: FileSystemDirectoryHandle | BackupStatus; };
 }
 const DB_NAME = 'mianji-sleep-log-settings';
-const defaultStatus = (): BackupStatus => ({ state: 'manual-only', lastSuccessfulBackupAt: null, message: null });
+const defaultStatus = (): BackupStatus => ({
+  state: 'manual-only',
+  lastAutomaticBackupAt: null,
+  lastManualExportAt: null,
+  legacyBackupAt: null,
+  lastSuccessfulBackupAt: null,
+  message: null,
+});
 
 async function connect(): Promise<IDBPDatabase<SettingsDb>> {
   return openDB<SettingsDb>(DB_NAME, 1, { upgrade: (db) => db.createObjectStore('settings') });
@@ -32,7 +46,16 @@ async function saveSetting(key: string, value: FileSystemDirectoryHandle | Backu
 export class IndexedDbBackupSettingsRepository implements BackupSettingsRepository {
   getDirectory() { return setting<FileSystemDirectoryHandle | null>('directory', null); }
   setDirectory(handle: FileSystemDirectoryHandle) { return saveSetting('directory', handle); }
-  getStatus() { return setting<BackupStatus>('status', defaultStatus()); }
+  async getStatus() {
+    const raw = await setting<BackupStatus>('status', defaultStatus());
+    return {
+      ...raw,
+      lastAutomaticBackupAt: raw.lastAutomaticBackupAt ?? (raw.state === 'ready' ? raw.lastSuccessfulBackupAt : null),
+      lastManualExportAt: raw.lastManualExportAt ?? null,
+      legacyBackupAt: raw.lastSuccessfulBackupAt ?? null,
+      lastSuccessfulBackupAt: raw.lastSuccessfulBackupAt ?? raw.lastAutomaticBackupAt ?? null,
+    };
+  }
   setStatus(status: BackupStatus) { return saveSetting('status', status); }
 }
 export async function deleteBackupSettingsDatabase() { await deleteDB(DB_NAME); }
@@ -91,7 +114,13 @@ export class AutoBackupTrigger implements BackupTrigger {
         return;
       }
       await this.files.writeTo(handle, createBackup(await this.sleep.list(), this.now()));
-      await this.settings.setStatus({ state: 'ready', lastSuccessfulBackupAt: this.now(), message: null });
+      await this.settings.setStatus({
+        ...current,
+        state: 'ready',
+        lastAutomaticBackupAt: this.now(),
+        lastSuccessfulBackupAt: this.now(),
+        message: null,
+      });
     } catch (error) {
       await this.settings.setStatus({ ...current, state: 'write-failed', message: error instanceof Error ? error.message : '自动备份写入失败' }).catch(() => undefined);
     }

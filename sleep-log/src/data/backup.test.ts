@@ -71,9 +71,12 @@ describe('versioned sleep backups', () => {
     expect(mergeBackup([completedNight], [reordered])).toEqual({ merged: [completedNight], conflicts: [] });
   });
 
-  it('reminds about manual backups after 30 days or when none succeeded', () => {
+  it('does not call an unexported backup older than 30 days', () => {
+    expect(shouldRemindManualBackup(null, Date.UTC(2026, 8, 3))).toBe(false);
+  });
+
+  it('reminds only when a successful manual export is older than 30 days', () => {
     const now = Date.parse('2026-10-03T00:00:00.000Z');
-    expect(shouldRemindManualBackup(null, now)).toBe(true);
     expect(shouldRemindManualBackup('2026-09-03T00:00:00.000Z', now)).toBe(true);
     expect(shouldRemindManualBackup('2026-09-04T00:00:00.000Z', now)).toBe(false);
     expect(shouldRemindManualBackup('not-a-date', now)).toBe(true);

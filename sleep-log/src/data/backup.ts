@@ -99,9 +99,9 @@ export function resolveBackupMerge(
   return [...map.values()].sort((a, b) => a.startAt.localeCompare(b.startAt));
 }
 
-export function shouldRemindManualBackup(lastSuccessfulBackupAt: string | null, nowMs: number, days = 30): boolean {
-  if (!lastSuccessfulBackupAt) return true;
-  const lastMs = Date.parse(lastSuccessfulBackupAt);
+export function shouldRemindManualBackup(lastManualExportAt: string | null, nowMs: number, days = 30): boolean {
+  if (!lastManualExportAt) return false;
+  const lastMs = Date.parse(lastManualExportAt);
   return !Number.isFinite(lastMs) || !Number.isFinite(nowMs) || nowMs - lastMs >= days * 24 * 60 * 60 * 1000;
 }
 

@@ -54,12 +54,23 @@ describe('browser file backup', () => {
 
   it('stores directory handles and status in a separate settings store', async () => {
     const settings = new IndexedDbBackupSettingsRepository();
-    const status: BackupStatus = { state: 'ready', lastSuccessfulBackupAt: '2026-09-03T00:00:00.000Z', message: null };
+    const status: BackupStatus = {
+      state: 'ready',
+      lastAutomaticBackupAt: '2026-09-03T00:00:00.000Z',
+      lastManualExportAt: '2026-09-02T00:00:00.000Z',
+      lastSuccessfulBackupAt: '2026-09-03T00:00:00.000Z',
+      message: null,
+    };
     const handle = {} as FileSystemDirectoryHandle;
     await settings.setDirectory(handle);
     await settings.setStatus(status);
     expect(await settings.getDirectory()).toEqual(handle);
-    expect(await settings.getStatus()).toEqual(status);
+    expect(await settings.getStatus()).toMatchObject({
+      state: 'ready',
+      lastAutomaticBackupAt: '2026-09-03T00:00:00.000Z',
+      lastManualExportAt: '2026-09-02T00:00:00.000Z',
+      message: null,
+    });
   });
 
   it('records external failures without rejecting the local mutation trigger', async () => {
