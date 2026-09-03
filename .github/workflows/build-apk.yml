@@ -65,13 +65,16 @@ jobs:
       - name: Locate and stage APK
         run: |
           mkdir -p ../dist-apk
-          find android -type f -name "*.apk" -exec cp -v {} ../dist-apk/ \;
+          find android -name "*.apk" -exec cp -f {} ../dist-apk/ \;
           ls -la ../dist-apk
+          if [ -z "$(ls -A ../dist-apk)" ]; then
+            echo "::error::dist-apk is empty! All files in android/app/build:"
+            find android/app/build -maxdepth 5 | head -n 100
+            exit 1
+          fi
 
       - name: Upload APK Artifact
-        if: success()
         uses: actions/upload-artifact@v4
         with:
           name: mianji-sleep-debug-apk
-          path: dist-apk/*.apk
-          if-no-files-found: error
+          path: dist-apk/
