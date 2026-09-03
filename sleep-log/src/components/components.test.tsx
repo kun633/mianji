@@ -472,9 +472,14 @@ describe('SettingsPage', () => {
 
   const settingsModel: SettingsModel = {
     capability: 'folder-auto',
-    status: { state: 'ready', lastSuccessfulBackupAt: '2026-09-02T14:00:00.000Z', message: null },
+    status: {
+      state: 'ready',
+      lastSuccessfulBackupAt: '2026-09-02T14:00:00.000Z',
+      lastAutomaticBackupAt: '2026-09-02T14:00:00.000Z',
+      lastManualExportAt: '2026-09-02T14:00:00.000Z',
+      message: null,
+    },
     segments: [sampleSegment],
-    isPersistentStorageGranted: true,
   };
 
   it('previews a restore before applying it', async () => {
@@ -563,15 +568,43 @@ describe('SettingsPage', () => {
     expect(actions.exportCsv).toHaveBeenCalledOnce();
   });
 
-  it('shows persistent-storage rejection without losing the settings page', async () => {
-    const actions = makeSettingsActions();
-    actions.requestPersistentStorage = vi.fn().mockRejectedValue(new Error('权限请求失败'));
-    render(<SettingsPage model={settingsModel} timezone="Asia/Shanghai" actions={actions} />);
+  it('shows an unexported state instead of an overdue warning in manual-only browsers', () => {
+    render(
+      <SettingsPage
+        model={{
+          ...settingsModel,
+          capability: 'manual-only',
+          status: { state: 'manual-only', message: null, lastManualExportAt: null },
+        }}
+        timezone="Asia/Shanghai"
+        actions={makeSettingsActions()}
+      />
+    );
+    expect(screen.getByText('尚未导出备份')).toBeInTheDocument();
+    expect(screen.queryByText(/超过 30 天/)).not.toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: '手机自动备份' })).not.toBeInTheDocument();
+  });
 
-    fireEvent.click(screen.getByRole('button', { name: '请求持久化存储' }));
-
-    expect(await screen.findByRole('alert')).toHaveTextContent('权限请求失败');
-    expect(screen.getByRole('heading', { name: '数据管理' })).toBeInTheDocument();
+  it('shows recent manual export date and overdue reminder when appropriate', () => {
+    render(
+      <SettingsPage
+        model={{
+          ...settingsModel,
+          capability: 'folder-auto',
+          status: {
+            state: 'ready',
+            message: null,
+            lastManualExportAt: '2026-07-01T00:00:00.000Z',
+            lastAutomaticBackupAt: '2026-09-03T00:00:00.000Z',
+          },
+        }}
+        timezone="Asia/Shanghai"
+        actions={makeSettingsActions()}
+      />
+    );
+    expect(screen.getByText(/最近导出：2026年7月1日/)).toBeInTheDocument();
+    expect(screen.getByText(/距离上次备份已超过 30 天/)).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: '手机自动备份' })).toBeInTheDocument();
   });
 
   it('shows folder replacement errors without discarding the existing settings UI', async () => {
@@ -597,9 +630,11 @@ describe('SettingsPage', () => {
     globalThis.fetch = vi.fn().mockResolvedValue({ ok: true });
 
     const textarea = screen.getByLabelText('反馈建议');
+    expect(textarea).toHaveAttribute('maxlength', '1000');
     fireEvent.change(textarea, { target: { value: '希望增加深色模式' } });
 
     const contactInput = screen.getByLabelText('联系方式');
+    expect(contactInput).toHaveAttribute('maxlength', '200');
     fireEvent.change(contactInput, { target: { value: 'test@example.com' } });
 
     fireEvent.click(screen.getByRole('button', { name: '提交反馈' }));

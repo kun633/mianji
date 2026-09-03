@@ -47,24 +47,6 @@ export function SettingsPage({ model, timezone, actions }: SettingsPageProps) {
   const [mergeBase, setMergeBase] = useState<SleepSegment[]>([]);
   const [previewSnapshot, setPreviewSnapshot] = useState<SleepSegment[]>([]);
   const [resolutions, setResolutions] = useState<Record<string, ConflictResolution>>({});
-  const [persistentGranted, setPersistentGranted] = useState<boolean | undefined>(
-    model.isPersistentStorageGranted
-  );
-
-  useEffect(() => {
-    if (model.isPersistentStorageGranted !== undefined) {
-      setPersistentGranted(model.isPersistentStorageGranted);
-    }
-  }, [model.isPersistentStorageGranted]);
-
-  useEffect(() => {
-    if (navigator.storage?.persisted) {
-      navigator.storage.persisted().then((persisted) => {
-        if (persisted) setPersistentGranted(true);
-      }).catch(() => undefined);
-    }
-  }, []);
-
   const [operationMessage, setOperationMessage] = useState<string | null>(null);
   const [feedbackText, setFeedbackText] = useState('');
   const [feedbackContact, setFeedbackContact] = useState('');
@@ -138,7 +120,7 @@ export function SettingsPage({ model, timezone, actions }: SettingsPageProps) {
   };
 
   const needsManualReminder = shouldRemindManualBackup(
-    model.status.lastSuccessfulBackupAt,
+    model.status.lastManualExportAt ?? null,
     Date.now()
   );
 
@@ -190,14 +172,6 @@ export function SettingsPage({ model, timezone, actions }: SettingsPageProps) {
     }
   };
 
-  const handleRequestStorage = async () => {
-    try {
-      const result = await actions.requestPersistentStorage();
-      setPersistentGranted(result);
-      setOperationMessage(result ? '已成功开启持久化存储' : '浏览器未授予持久化存储权限');
-    } catch (error) { showError(error, '持久化存储请求失败'); }
-  };
-
   const handleChooseFolder = async () => {
     try { await actions.chooseFolder(); }
     catch (error) { showError(error, '自动备份文件夹操作失败'); }
@@ -236,41 +210,29 @@ export function SettingsPage({ model, timezone, actions }: SettingsPageProps) {
         {operationMessage && <div className="toast-message" role="alert">{operationMessage}</div>}
 
         {/* 自动备份状态与文件夹 */}
-        <section className="settings-section" aria-label="自动备份状态">
-          <h2>手机自动备份</h2>
-          <div className="status-card">
-            <div className="status-row">
-              <span className="status-label">备份支持能力</span>
-              <strong className="status-badge">
-                {model.capability === 'folder-auto' ? '自动备份可用' : '需要手动备份'}
-              </strong>
-            </div>
-
-            <div className="status-row">
-              <span className="status-label">最近自动备份</span>
-              <span>
-                {model.status.lastSuccessfulBackupAt
-                  ? formatChineseDate(model.status.lastSuccessfulBackupAt, timezone)
-                  : '暂无自动备份记录'}
-              </span>
-            </div>
-
-            {model.status.state === 'needs-permission' && (
-              <p className="warning-text">需要重新授权文件夹访问权限</p>
-            )}
-            {model.status.state === 'write-failed' && (
-              <p className="error-text">
-                自动备份写入失败：{model.status.message || '未知错误'}
+        {model.capability === 'folder-auto' && (
+          <section className="settings-section" aria-label="自动备份状态">
+            <h2>手机自动备份</h2>
+            <div className="status-card">
+              <p className="hint-text">
+                授权手机文件夹后，每次记录变更会自动写入独立备份文件。请注意：在浏览器完全关闭时无法在后台自动写入。
               </p>
-            )}
-            {model.status.state === 'manual-only' && (
-              <p className="hint-text">当前环境不支持授权文件夹，建议定期手动导出备份。</p>
-            )}
-            {needsManualReminder && (
-              <p className="warning-text">距离上次备份已超过 30 天，建议导出备份</p>
-            )}
-
-            {model.capability === 'folder-auto' && (
+              <div className="status-row">
+                <span className="status-label">最近自动备份</span>
+                <span>
+                  {model.status.lastAutomaticBackupAt || model.status.lastSuccessfulBackupAt
+                    ? formatChineseDate(model.status.lastAutomaticBackupAt ?? model.status.lastSuccessfulBackupAt!, timezone)
+                    : '暂无自动备份记录'}
+                </span>
+              </div>
+              {model.status.state === 'needs-permission' && (
+                <p className="warning-text">需要重新授权文件夹访问权限</p>
+              )}
+              {model.status.state === 'write-failed' && (
+                <p className="error-text">
+                  自动备份写入失败：{model.status.message || '未知错误'}
+                </p>
+              )}
               <button
                 type="button"
                 className="full-button primary-action-btn"
@@ -278,13 +240,28 @@ export function SettingsPage({ model, timezone, actions }: SettingsPageProps) {
               >
                 {model.status.state === 'ready' ? '更改自动备份文件夹' : '选择自动备份文件夹'}
               </button>
-            )}
-          </div>
-        </section>
+            </div>
+          </section>
+        )}
 
         {/* 备份导出与导入 */}
         <section className="settings-section" aria-label="数据备份与恢复">
           <h2>数据备份与恢复</h2>
+          <div className="status-card" style={{ marginBottom: '1rem' }}>
+            <div className="status-row">
+              <span className="status-label">导出备份状态</span>
+              <span>
+                {model.status.lastManualExportAt
+                  ? `最近导出：${formatChineseDate(model.status.lastManualExportAt, timezone)}`
+                  : '尚未导出备份'}
+              </span>
+            </div>
+            {needsManualReminder && (
+              <p className="warning-text" style={{ marginTop: '0.5rem' }}>
+                距离上次备份已超过 30 天，建议导出备份
+              </p>
+            )}
+          </div>
           <div className="button-group">
             <button
               type="button"
@@ -393,34 +370,6 @@ export function SettingsPage({ model, timezone, actions }: SettingsPageProps) {
           </div>
         </section>
 
-        {/* 持久化存储 */}
-        <section className="settings-section" aria-label="本地存储保障">
-          <h2>本地持久化存储</h2>
-          <div className="storage-card">
-            <p className="hint-text">
-              请求浏览器为“眠记”锁定持久存储，防止手机在存储空间紧张时自动清除您的睡眠数据。
-            </p>
-            <div className="storage-status">
-              <span>当前状态：</span>
-              <strong style={{ color: persistentGranted ? 'var(--accent)' : 'inherit' }}>
-                {persistentGranted ? '✓ 已开启持久化存储（已受保护）' : '未开启持久化存储'}
-              </strong>
-            </div>
-            {persistentGranted && (
-              <p className="hint-text" style={{ color: 'var(--accent)', fontWeight: 500, margin: '8px 0 0 0' }}>
-                已受持久保护：浏览器已锁定永久存储，退出应用后持续有效，数据不会被自动清理。
-              </p>
-            )}
-            <button
-              type="button"
-              className="action-btn"
-              onClick={() => void handleRequestStorage()}
-            >
-              请求持久化存储
-            </button>
-          </div>
-        </section>
-
         {/* 意见与反馈 */}
         <section className="settings-section" aria-label="意见与反馈">
           <h2>意见与反馈</h2>
@@ -433,6 +382,7 @@ export function SettingsPage({ model, timezone, actions }: SettingsPageProps) {
                 className="feedback-textarea"
                 rows={3}
                 placeholder="写下您的建议、吐槽或遇到的问题..."
+                maxLength={1000}
                 value={feedbackText}
                 onChange={(e) => setFeedbackText(e.target.value)}
                 required
@@ -442,6 +392,7 @@ export function SettingsPage({ model, timezone, actions }: SettingsPageProps) {
                 type="text"
                 className="feedback-contact-input"
                 placeholder="您的联系方式（选填，如微信号/QQ/邮箱，方便回复）"
+                maxLength={200}
                 value={feedbackContact}
                 onChange={(e) => setFeedbackContact(e.target.value)}
                 aria-label="联系方式"
@@ -489,9 +440,9 @@ export function SettingsPage({ model, timezone, actions }: SettingsPageProps) {
           <h2>重要数据保护说明</h2>
           <div className="info-card">
             <p>1. 数据默认存储在本机浏览器的 IndexedDB 数据库中。</p>
-            <p>2. 清理浏览器数据或卸载浏览器可能会清除本地记录。</p>
-            <p>3. 授权手机文件夹后，每次记录变更均会自动写入独立备份文件，不受网页缓存清除影响。</p>
-            <p>4. 建议偶尔将 JSON 备份文件复制保存到其他存储设备。</p>
+            <p>2. 网页版无法承诺永久锁定存储；若清理浏览器网站数据或卸载浏览器，可能会清除本地记录。</p>
+            <p>3. 建议定期点击上方“导出完整备份 (JSON)”将数据保存到其他存储设备或云盘。</p>
+            <p>4. 换机或清除数据后，可通过“恢复备份”随时完整导入历史记录。</p>
           </div>
           <div className="app-version">
             <span>应用版本：0.1.0 (PWA 离线版)</span>

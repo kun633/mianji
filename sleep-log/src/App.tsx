@@ -94,7 +94,6 @@ export default function App() {
     message: null,
   });
   const [capability, setCapability] = useState<BackupCapability>('manual-only');
-  const [isPersistent, setIsPersistent] = useState<boolean>(false);
   const [needRefresh, setNeedRefresh] = useState(false);
   const [updateSW, setUpdateSW] = useState<(() => Promise<void>) | null>(null);
   const [tick, setTick] = useState(0);
@@ -143,22 +142,6 @@ export default function App() {
     return () => window.clearTimeout(timer);
   }, [appError]);
 
-  useEffect(() => {
-    if (navigator.storage?.persisted) {
-      navigator.storage.persisted().then(async (persisted) => {
-        setIsPersistent(persisted);
-        if (!persisted && navigator.storage?.persist) {
-          try {
-            const granted = await navigator.storage.persist();
-            if (granted) setIsPersistent(true);
-          } catch {
-            // Silently ignore if browser requires user gesture
-          }
-        }
-      }).catch(() => undefined);
-    }
-  }, []);
-
   const refreshData = async () => {
     try {
       const list = await repository.list();
@@ -169,9 +152,6 @@ export default function App() {
       setBackupStatus(st);
       setCapability(fileBackup.capability());
       setLoadError(null);
-      if (navigator.storage?.persisted) {
-        navigator.storage.persisted().then(setIsPersistent).catch(() => undefined);
-      }
     } catch (error) {
       setLoadError(error instanceof Error ? error.message : '记录加载失败，请重试');
     }
@@ -311,7 +291,11 @@ export default function App() {
       const text = createBackup(segments, clock.nowIso());
       const dateStr = displayDate(clock.nowIso(), clock.timezone());
       downloadBackup(text, `眠记-备份-${dateStr}.json`);
-      const status = { ...backupStatus, lastSuccessfulBackupAt: clock.nowIso() };
+      const status: BackupStatus = {
+        ...backupStatus,
+        lastManualExportAt: clock.nowIso(),
+        lastSuccessfulBackupAt: clock.nowIso(),
+      };
       await settingsRepository.setStatus(status);
       setBackupStatus(status);
     },
@@ -327,11 +311,7 @@ export default function App() {
       await backupTrigger.run();
       await refreshData();
     },
-    requestPersistentStorage: async () => {
-      const granted = await requestPersistentStorage();
-      setIsPersistent(granted);
-      return granted;
-    },
+    requestPersistentStorage: async () => false,
   };
 
   const currentTodayDate = displayDate(clock.nowIso(), clock.timezone());
@@ -341,7 +321,6 @@ export default function App() {
     capability,
     status: backupStatus,
     segments,
-    isPersistentStorageGranted: isPersistent,
   };
 
   if (!model) {

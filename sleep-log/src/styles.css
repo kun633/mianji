@@ -11,6 +11,8 @@
   --danger-soft: #fde8e8;
   --line: #e1e6ef;
   --focus: #2257c7;
+  --bg: #ffffff;
+  --accent: #276749;
   --nav-height: 4rem;
   font-family: "Noto Sans SC", "Microsoft YaHei", system-ui, sans-serif;
 }
