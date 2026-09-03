@@ -627,7 +627,25 @@ h3 {
   padding: 0.75rem 1rem;
   border-radius: 0.75rem;
   font-size: 0.9rem;
-  text-align: center;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.toast-close-btn {
+  background: transparent;
+  border: none;
+  color: #fff;
+  font-size: 1.25rem;
+  line-height: 1;
+  padding: 0 0.25rem;
+  cursor: pointer;
+  opacity: 0.85;
+}
+
+.toast-close-btn:hover {
+  opacity: 1;
 }
 
 .app-error-banner, .app-error {

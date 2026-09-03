@@ -336,7 +336,7 @@ export default function App({ initialRepository }: { initialRepository?: SleepRe
     exportCsv: () => {
       const text = toCsv(segments);
       const dateStr = displayDate(clock.nowIso(), clock.timezone());
-      downloadBackup(text, `眠记-睡眠记录-${dateStr}.csv`);
+      downloadBackup(text, `眠记-睡眠记录-${dateStr}.csv`, 'text/csv;charset=utf-8');
     },
     restore: async (expected, newSegments) => {
       if (!await repository.replaceAllIfUnchanged(expected, newSegments)) {

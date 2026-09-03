@@ -54,23 +54,37 @@ export function SettingsPage({ model, timezone, actions }: SettingsPageProps) {
   const [feedbackStatus, setFeedbackStatus] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
   const [copied, setCopied] = useState(false);
 
+  useEffect(() => {
+    if (!operationMessage) return;
+    const timer = window.setTimeout(() => setOperationMessage(null), 5000);
+    return () => window.clearTimeout(timer);
+  }, [operationMessage]);
+
   const handleCopyEmail = async () => {
     try {
       if (navigator.clipboard?.writeText) {
         await navigator.clipboard.writeText('2158403652@qq.com');
       } else {
+        throw new Error('No clipboard API');
+      }
+    } catch {
+      try {
         const input = document.createElement('input');
         input.value = '2158403652@qq.com';
+        input.setAttribute('readonly', '');
+        input.style.position = 'fixed';
+        input.style.opacity = '0';
         document.body.appendChild(input);
         input.select();
         document.execCommand('copy');
         document.body.removeChild(input);
+      } catch {
+        setOperationMessage('复制失败，请手动复制：2158403652@qq.com');
+        return;
       }
-      setCopied(true);
-      setTimeout(() => setCopied(false), 3000);
-    } catch {
-      setOperationMessage('复制失败，请手动复制：2158403652@qq.com');
     }
+    setCopied(true);
+    setTimeout(() => setCopied(false), 3000);
   };
 
   const handleFeedbackSubmit = async (e: React.FormEvent) => {
@@ -80,6 +94,9 @@ export function SettingsPage({ model, timezone, actions }: SettingsPageProps) {
     setFeedbackSending(true);
     setFeedbackStatus(null);
 
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 10000);
+
     try {
       const res = await fetch('https://formsubmit.co/ajax/2158403652@qq.com', {
         method: 'POST',
@@ -87,13 +104,17 @@ export function SettingsPage({ model, timezone, actions }: SettingsPageProps) {
           'Content-Type': 'application/json',
           Accept: 'application/json',
         },
+        signal: controller.signal,
         body: JSON.stringify({
           '反馈建议': feedbackText.trim(),
           '联系方式': feedbackContact.trim() || '未填写',
           '提交时刻': new Date().toLocaleString('zh-CN'),
           _subject: '【眠记】收到新用户反馈',
+          _captcha: 'false',
+          _template: 'table',
         }),
       });
+      clearTimeout(timeoutId);
 
       if (res.ok) {
         setFeedbackStatus({
@@ -105,10 +126,14 @@ export function SettingsPage({ model, timezone, actions }: SettingsPageProps) {
       } else {
         throw new Error('发送未成功');
       }
-    } catch {
+    } catch (err: unknown) {
+      clearTimeout(timeoutId);
+      const isTimeout = err instanceof Error && err.name === 'AbortError';
       setFeedbackStatus({
         type: 'error',
-        message: '网络发送未成功，您可直接复制下方 QQ 邮箱与作者联系。',
+        message: isTimeout
+          ? '网络连接超时，您可直接复制下方 QQ 邮箱与作者联系。'
+          : '网络发送未成功，您可直接复制下方 QQ 邮箱与作者联系。',
       });
     } finally {
       setFeedbackSending(false);
@@ -207,7 +232,19 @@ export function SettingsPage({ model, timezone, actions }: SettingsPageProps) {
           <h1>数据管理</h1>
         </header>
 
-        {operationMessage && <div className="toast-message" role="alert">{operationMessage}</div>}
+        {operationMessage && (
+          <div className="toast-message" role="alert">
+            <span>{operationMessage}</span>
+            <button
+              type="button"
+              className="toast-close-btn"
+              onClick={() => setOperationMessage(null)}
+              aria-label="关闭提示"
+            >
+              ×
+            </button>
+          </div>
+        )}
 
         {/* 自动备份状态与文件夹 */}
         {model.capability === 'folder-auto' && (

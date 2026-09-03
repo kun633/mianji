@@ -1,3 +1,5 @@
+import { Capacitor, registerPlugin } from '@capacitor/core';
+
 export interface WidgetStatePayload {
   state: 'idle' | 'active' | 'finished';
   headline: string;
@@ -9,6 +11,22 @@ export interface WidgetStatePayload {
 export interface NativeWidgetBridge {
   send(payload: WidgetStatePayload): Promise<void>;
 }
+
+interface SleepWidgetPlugin {
+  updateWidgetState(options: {
+    headline: string;
+    subline: string;
+    actionText: string;
+  }): Promise<void>;
+}
+
+const SleepWidgetBridge = registerPlugin<SleepWidgetPlugin>('SleepWidgetBridge');
+
+const actionTextMap: Record<string, string> = {
+  start: '打开应用',
+  wake: '起床',
+  view: '查看记录',
+};
 
 export async function publishWidgetState(
   payload: WidgetStatePayload,
@@ -24,5 +42,16 @@ export async function publishWidgetState(
     }
   } catch {
     // Ignore storage errors in non-standard environments
+  }
+  try {
+    if (Capacitor.isNativePlatform()) {
+      await SleepWidgetBridge.updateWidgetState({
+        headline: payload.headline,
+        subline: payload.subline,
+        actionText: actionTextMap[payload.actionType] ?? '打开应用',
+      });
+    }
+  } catch {
+    // Ignore native bridge errors in unsupported environments
   }
 }

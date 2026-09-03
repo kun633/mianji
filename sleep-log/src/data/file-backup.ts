@@ -90,8 +90,8 @@ export async function requestPersistentStorage(): Promise<boolean> {
   return navigator.storage?.persist ? navigator.storage.persist() : false;
 }
 
-export function downloadBackup(text: string, filename: string): void {
-  const url = URL.createObjectURL(new Blob([text], { type: 'application/json;charset=utf-8' }));
+export function downloadBackup(text: string, filename: string, mimeType = 'application/json;charset=utf-8'): void {
+  const url = URL.createObjectURL(new Blob([text], { type: mimeType }));
   const link = document.createElement('a');
   link.href = url; link.download = filename; link.click(); URL.revokeObjectURL(url);
 }

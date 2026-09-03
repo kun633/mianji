@@ -89,16 +89,16 @@ export class NativeSqliteSleepRepository implements SleepRepository {
       [
         segment.id,
         segment.kind,
-        segment.groupId,
+        segment.groupId ?? null,
         segment.startAt,
         segment.startTimezone,
-        segment.endAt,
-        segment.endTimezone,
+        segment.endAt ?? null,
+        segment.endTimezone ?? null,
         segment.status,
-        segment.uncertainReason,
+        segment.uncertainReason ?? null,
         segment.createdAt,
         segment.updatedAt,
-        segment.finishedAt,
+        segment.finishedAt ?? null,
         segment.schemaVersion,
       ]
     );

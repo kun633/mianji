@@ -1,4 +1,5 @@
 import { Capacitor } from '@capacitor/core';
+import { CapacitorSQLite } from '@capacitor-community/sqlite';
 import { IndexedDbSleepRepository, type SleepRepository } from './repository';
 import { NativeSqliteSleepRepository, type SqliteAdapter } from './native-sqlite-repository';
 
@@ -8,9 +9,55 @@ export async function createSleepRepository(customAdapter?: SqliteAdapter): Prom
     await repo.initialize();
     return repo;
   }
-  if (!Capacitor.isNativePlatform()) {
-    return new IndexedDbSleepRepository();
+  if (Capacitor.isNativePlatform()) {
+    try {
+      const dbName = 'mianji_sleep';
+      await CapacitorSQLite.createConnection({
+        database: dbName,
+        encrypted: false,
+        mode: 'no-encryption',
+        version: 1,
+        readonly: false,
+      });
+      await CapacitorSQLite.open({ database: dbName, readonly: false });
+
+      const adapter: SqliteAdapter = {
+        async execute(sql: string, values?: unknown[]): Promise<void> {
+          if (values && values.length > 0) {
+            await CapacitorSQLite.run({ database: dbName, statement: sql, values: values as any[] });
+          } else {
+            await CapacitorSQLite.execute({ database: dbName, statements: sql });
+          }
+        },
+        async query<T>(sql: string, values?: unknown[]): Promise<T[]> {
+          const res = await CapacitorSQLite.query({
+            database: dbName,
+            statement: sql,
+            values: (values ?? []) as any[],
+          });
+          return (res.values ?? []) as T[];
+        },
+        async transaction<T>(operation: () => Promise<T>): Promise<T> {
+          await CapacitorSQLite.execute({ database: dbName, statements: 'BEGIN TRANSACTION;' });
+          try {
+            const result = await operation();
+            await CapacitorSQLite.execute({ database: dbName, statements: 'COMMIT;' });
+            return result;
+          } catch (error) {
+            await CapacitorSQLite.execute({ database: dbName, statements: 'ROLLBACK;' });
+            throw error;
+          }
+        },
+      };
+
+      const repo = new NativeSqliteSleepRepository(adapter);
+      await repo.initialize();
+      return repo;
+    } catch (err) {
+      console.warn('Native SQLite 初始化失败，自动降级为 IndexedDb 存储:', err);
+      return new IndexedDbSleepRepository();
+    }
   }
-  // Default to IndexedDb for environments where native sqlite bridge is not attached
   return new IndexedDbSleepRepository();
 }
+
