@@ -592,6 +592,16 @@ describe('SettingsPage', () => {
     expect(screen.getByRole('heading', { name: '数据备份与恢复' })).toBeInTheDocument();
   });
 
+  it('uses a useful fallback when an export error has no message', async () => {
+    const actions = makeSettingsActions();
+    actions.exportJson = vi.fn().mockRejectedValue(new Error(''));
+    render(<SettingsPage model={settingsModel} timezone="Asia/Shanghai" actions={actions} />);
+
+    fireEvent.click(screen.getByRole('button', { name: '导出完整备份 (JSON)' }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('导出失败，请重试');
+  });
+
   it('shows an unexported state instead of an overdue warning in manual-only browsers', () => {
     render(
       <SettingsPage

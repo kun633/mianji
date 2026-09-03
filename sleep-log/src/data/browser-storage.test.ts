@@ -1,6 +1,7 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import {
   checkStorageProtection,
+  requestAndCheckStorageProtection,
   requestStorageProtection,
 } from './browser-storage';
 
@@ -21,5 +22,16 @@ describe('browser storage protection', () => {
     expect(await requestStorageProtection({ persist: async () => true })).toBe(true);
     expect(await requestStorageProtection({ persist: async () => false })).toBe(false);
     expect(await requestStorageProtection(undefined)).toBe(false);
+  });
+
+  it('rechecks the real protection state after requesting it', async () => {
+    const storage = {
+      persist: vi.fn().mockResolvedValue(false),
+      persisted: vi.fn().mockResolvedValue(true),
+    };
+
+    expect(await requestAndCheckStorageProtection(storage)).toBe('granted');
+    expect(storage.persist).toHaveBeenCalledOnce();
+    expect(storage.persisted).toHaveBeenCalledOnce();
   });
 });

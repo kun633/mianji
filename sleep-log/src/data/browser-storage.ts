@@ -7,6 +7,7 @@ export type StorageProtectionState =
 
 type PersistenceReader = Pick<StorageManager, 'persisted'>;
 type PersistenceRequester = Pick<StorageManager, 'persist'>;
+type PersistenceStorage = Partial<PersistenceReader & PersistenceRequester>;
 
 const browserStorage = (): StorageManager | undefined =>
   typeof navigator === 'undefined' ? undefined : navigator.storage;
@@ -27,4 +28,16 @@ export async function requestStorageProtection(
 ): Promise<boolean> {
   if (!storage?.persist) return false;
   return storage.persist();
+}
+
+export async function requestAndCheckStorageProtection(
+  storage: PersistenceStorage | undefined = browserStorage(),
+): Promise<StorageProtectionState> {
+  if (!storage?.persist) return checkStorageProtection(storage as PersistenceReader | undefined);
+  try {
+    await storage.persist();
+  } catch {
+    return 'unknown';
+  }
+  return checkStorageProtection(storage as PersistenceReader);
 }

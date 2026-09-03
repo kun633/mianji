@@ -9,7 +9,7 @@ import {
 } from './data/file-backup';
 import {
   checkStorageProtection,
-  requestStorageProtection,
+  requestAndCheckStorageProtection,
   type StorageProtectionState,
 } from './data/browser-storage';
 import { createBackup, toCsv } from './data/backup';
@@ -325,13 +325,7 @@ export default function App({ initialRepository }: { initialRepository?: SleepRe
       await refreshData();
     },
     requestStorageProtection: async () => {
-      try {
-        const granted = await requestStorageProtection();
-        setStorageProtection(granted ? 'granted' : 'not-granted');
-      } catch (error) {
-        setStorageProtection('unknown');
-        throw error;
-      }
+      setStorageProtection(await requestAndCheckStorageProtection());
     },
   };
 

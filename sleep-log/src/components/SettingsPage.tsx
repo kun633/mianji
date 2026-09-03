@@ -142,7 +142,7 @@ export function SettingsPage({ model, timezone, actions }: SettingsPageProps) {
   };
 
   const showError = (error: unknown, fallback: string) => {
-    setOperationMessage(error instanceof Error ? error.message : fallback);
+    setOperationMessage(error instanceof Error && error.message.trim() ? error.message : fallback);
   };
 
   const needsManualReminder = shouldRemindManualBackup(
