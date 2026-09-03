@@ -5,6 +5,9 @@ on:
     branches: [ main, master, codex/* ]
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -54,7 +57,19 @@ jobs:
       - name: Build Debug APK
         run: |
           cd android
-          ./gradlew :app:assembleDebug --stacktrace
+          set -o pipefail
+          ./gradlew :app:assembleDebug --stacktrace 2>&1 | tee /tmp/gradle_build.log
+
+      - name: Publish error log on failure
+        if: failure()
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git checkout -B ci-error-log
+          cp -f /tmp/gradle_build.log ./build_error.log || echo "log missing" > build_error.log
+          git add -f build_error.log
+          git commit -m "ci: capture build error log"
+          git push -f origin ci-error-log
 
       - name: Locate and stage APK
         run: |
