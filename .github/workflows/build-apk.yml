@@ -54,7 +54,13 @@ jobs:
       - name: Build Debug APK
         run: |
           cd android
-          ./gradlew :app:assembleDebug --stacktrace
+          if ! ./gradlew :app:assembleDebug --stacktrace 2>&1 | tee ../gradle_output.log; then
+            echo "::error::=== GRADLE BUILD FAILED ==="
+            tail -n 60 ../gradle_output.log | while IFS= read -r line; do
+              echo "::error title=Gradle::$line"
+            done
+            exit 1
+          fi
 
       - name: Locate and stage APK
         run: |
