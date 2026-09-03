@@ -18,9 +18,20 @@ interface SleepWidgetPlugin {
     subline: string;
     actionText: string;
   }): Promise<void>;
+  openAppSettings(): Promise<void>;
 }
 
 const SleepWidgetBridge = registerPlugin<SleepWidgetPlugin>('SleepWidgetBridge');
+
+export async function openNativeAppSettings(): Promise<void> {
+  try {
+    if (Capacitor.isNativePlatform()) {
+      await SleepWidgetBridge.openAppSettings();
+    }
+  } catch {
+    // Ignore
+  }
+}
 
 const actionTextMap: Record<string, string> = {
   start: '打开应用',

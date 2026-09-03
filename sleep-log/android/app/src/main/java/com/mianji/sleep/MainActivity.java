@@ -42,23 +42,48 @@ public class MainActivity extends BridgeActivity {
             }
             call.resolve();
         }
+
+        @PluginMethod
+        public void openAppSettings(PluginCall call) {
+            Context context = getContext();
+            if (context != null) {
+                android.content.Intent intent = new android.content.Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS);
+                intent.setData(android.net.Uri.parse("package:" + context.getPackageName()));
+                intent.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK);
+                context.startActivity(intent);
+            }
+            call.resolve();
+        }
     }
 
     @Override
     public void onCreate(Bundle savedInstanceState) {
         registerPlugin(SleepWidgetBridgePlugin.class);
         super.onCreate(savedInstanceState);
+        applyLockScreenFlags();
+    }
 
-        // 允许预先打开应用时在锁屏状态下直接查看和操作（点亮屏幕无需输密码即可使用）
+    @Override
+    public void onAttachedToWindow() {
+        super.onAttachedToWindow();
+        applyLockScreenFlags();
+    }
+
+    @Override
+    protected void onResume() {
+        super.onResume();
+        applyLockScreenFlags();
+    }
+
+    private void applyLockScreenFlags() {
         if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O_MR1) {
             setShowWhenLocked(true);
             setTurnScreenOn(true);
-        } else {
-            getWindow().addFlags(
-                android.view.WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED
-                | android.view.WindowManager.LayoutParams.FLAG_DISMISS_KEYGUARD
-                | android.view.WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON
-            );
         }
+        getWindow().addFlags(
+            android.view.WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED
+            | android.view.WindowManager.LayoutParams.FLAG_DISMISS_KEYGUARD
+            | android.view.WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON
+        );
     }
 }

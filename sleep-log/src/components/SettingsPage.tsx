@@ -15,6 +15,7 @@ import type { StorageProtectionState } from '../data/browser-storage';
 import type { SleepSegment } from '../domain/sleep';
 import { displayDate } from '../domain/stats';
 import { isNativeApp } from '../native/platform';
+import { openNativeAppSettings } from '../native/widget-bridge';
 
 export interface SettingsModel {
   capability: BackupCapability;
@@ -75,7 +76,7 @@ export function SettingsPage({ model, timezone, actions }: SettingsPageProps) {
       const data = await res.json();
       const tagName: string = data.tag_name || '';
       const latestVer = tagName.replace(/^v/, '');
-      const currentVer = '1.0.3';
+      const currentVer = '1.0.4';
 
       const compareVersions = (v1: string, v2: string) => {
         const p1 = v1.split('.').map(Number);
@@ -590,15 +591,28 @@ export function SettingsPage({ model, timezone, actions }: SettingsPageProps) {
           <div className="status-card">
             <div className="status-row">
               <span className="status-label">当前运行版本</span>
-              <span>v1.0.3 ({isNative ? 'Android 原生版' : 'Web 网页版'})</span>
+              <span>v1.0.4 ({isNative ? 'Android 原生版' : 'Web 网页版'})</span>
             </div>
             <p className="hint-text">
               支持一键联网检测 GitHub 官方发布的最新版本，并可直接下载更新安装包（覆盖安装数据不丢失）。
             </p>
             {isNative && (
-              <p className="hint-text" style={{ marginTop: '0.4rem', color: '#60a5fa' }}>
-                💡 锁屏免密使用已启用：应用在前台打开时锁屏，点亮屏幕无需输入密码即可直接操作。
-              </p>
+              <div style={{ marginTop: '0.6rem', padding: '0.6rem 0.8rem', background: 'rgba(59, 130, 246, 0.08)', borderRadius: '8px', border: '1px solid rgba(59, 130, 246, 0.2)' }}>
+                <p className="hint-text" style={{ margin: 0, color: '#60a5fa', fontWeight: 500 }}>
+                  💡 锁屏免密使用设置说明：
+                </p>
+                <p className="hint-text" style={{ margin: '0.4rem 0', fontSize: '12px', lineHeight: 1.5 }}>
+                  vivo 等手机系统默认限制第三方应用在锁屏上方浮动。若锁屏点亮后未直接显示，请点击下方按钮，在系统权限中允许【锁屏显示】（或“后台弹出界面”）。
+                </p>
+                <button
+                  type="button"
+                  className="full-button export-btn"
+                  style={{ width: '100%', marginTop: '0.3rem', fontSize: '13px', padding: '6px 10px' }}
+                  onClick={() => void openNativeAppSettings()}
+                >
+                  👉 点击跳转系统设置开启【锁屏显示】权限
+                </button>
+              </div>
             )}
             {updateStatus && (
               <p className={updateStatus.hasUpdate ? 'warning-text' : 'hint-text'} style={{ marginTop: '0.5rem', marginBottom: '0.5rem' }}>
@@ -637,7 +651,7 @@ export function SettingsPage({ model, timezone, actions }: SettingsPageProps) {
             <p>4. 换机或清除数据后，可通过“恢复备份”随时完整导入历史记录。</p>
           </div>
           <div className="app-version">
-            <span>应用版本：v1.0.3 ({isNative ? 'Android 原生版' : 'PWA 离线版'})</span>
+            <span>应用版本：v1.0.4 ({isNative ? 'Android 原生版' : 'PWA 离线版'})</span>
           </div>
         </section>
       </div>

@@ -1,4 +1,4 @@
-﻿export interface WidgetStatePayload {
+export interface WidgetStatePayload {
   state: 'idle' | 'active' | 'finished';
   headline: string;
   subline: string;
@@ -15,4 +15,8 @@ export async function publishWidgetState(
   _bridge?: NativeWidgetBridge
 ): Promise<void> {
   // Pure web stub: no native bridge operation
+}
+
+export async function openNativeAppSettings(): Promise<void> {
+  // Pure web stub
 }

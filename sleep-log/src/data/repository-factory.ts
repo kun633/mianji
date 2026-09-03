@@ -21,12 +21,23 @@ export async function createSleepRepository(customAdapter?: SqliteAdapter): Prom
       });
       await CapacitorSQLite.open({ database: dbName, readonly: false });
 
+      let inManualTransaction = false;
+
       const adapter: SqliteAdapter = {
         async execute(sql: string, values?: unknown[]): Promise<void> {
           if (values && values.length > 0) {
-            await CapacitorSQLite.run({ database: dbName, statement: sql, values: values as any[] });
+            await CapacitorSQLite.run({
+              database: dbName,
+              statement: sql,
+              values: values as any[],
+              transaction: !inManualTransaction,
+            });
           } else {
-            await CapacitorSQLite.execute({ database: dbName, statements: sql });
+            await CapacitorSQLite.execute({
+              database: dbName,
+              statements: sql,
+              transaction: !inManualTransaction,
+            });
           }
         },
         async query<T>(sql: string, values?: unknown[]): Promise<T[]> {
@@ -38,14 +49,24 @@ export async function createSleepRepository(customAdapter?: SqliteAdapter): Prom
           return (res.values ?? []) as T[];
         },
         async transaction<T>(operation: () => Promise<T>): Promise<T> {
-          await CapacitorSQLite.execute({ database: dbName, statements: 'BEGIN TRANSACTION;' });
+          if (inManualTransaction) {
+            return operation();
+          }
+          inManualTransaction = true;
           try {
+            await CapacitorSQLite.beginTransaction({ database: dbName });
             const result = await operation();
-            await CapacitorSQLite.execute({ database: dbName, statements: 'COMMIT;' });
+            await CapacitorSQLite.commitTransaction({ database: dbName });
             return result;
           } catch (error) {
-            await CapacitorSQLite.execute({ database: dbName, statements: 'ROLLBACK;' });
+            try {
+              await CapacitorSQLite.rollbackTransaction({ database: dbName });
+            } catch {
+              // Ignore rollback errors if transaction was already closed
+            }
             throw error;
+          } finally {
+            inManualTransaction = false;
           }
         },
       };
