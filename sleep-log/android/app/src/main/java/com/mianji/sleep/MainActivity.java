@@ -48,5 +48,17 @@ public class MainActivity extends BridgeActivity {
     public void onCreate(Bundle savedInstanceState) {
         registerPlugin(SleepWidgetBridgePlugin.class);
         super.onCreate(savedInstanceState);
+
+        // 允许预先打开应用时在锁屏状态下直接查看和操作（点亮屏幕无需输密码即可使用）
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O_MR1) {
+            setShowWhenLocked(true);
+            setTurnScreenOn(true);
+        } else {
+            getWindow().addFlags(
+                android.view.WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED
+                | android.view.WindowManager.LayoutParams.FLAG_DISMISS_KEYGUARD
+                | android.view.WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON
+            );
+        }
     }
 }

@@ -75,7 +75,7 @@ export function SettingsPage({ model, timezone, actions }: SettingsPageProps) {
       const data = await res.json();
       const tagName: string = data.tag_name || '';
       const latestVer = tagName.replace(/^v/, '');
-      const currentVer = '1.0.1';
+      const currentVer = '1.0.2';
 
       const compareVersions = (v1: string, v2: string) => {
         const p1 = v1.split('.').map(Number);
@@ -590,11 +590,16 @@ export function SettingsPage({ model, timezone, actions }: SettingsPageProps) {
           <div className="status-card">
             <div className="status-row">
               <span className="status-label">当前运行版本</span>
-              <span>v1.0.1 ({isNative ? 'Android 原生版' : 'Web 网页版'})</span>
+              <span>v1.0.2 ({isNative ? 'Android 原生版' : 'Web 网页版'})</span>
             </div>
             <p className="hint-text">
               支持一键联网检测 GitHub 官方发布的最新版本，并可直接下载更新安装包（覆盖安装数据不丢失）。
             </p>
+            {isNative && (
+              <p className="hint-text" style={{ marginTop: '0.4rem', color: '#60a5fa' }}>
+                💡 锁屏免密使用已启用：应用在前台打开时锁屏，点亮屏幕无需输入密码即可直接操作。
+              </p>
+            )}
             {updateStatus && (
               <p className={updateStatus.hasUpdate ? 'warning-text' : 'hint-text'} style={{ marginTop: '0.5rem', marginBottom: '0.5rem' }}>
                 {updateStatus.message}
@@ -632,7 +637,7 @@ export function SettingsPage({ model, timezone, actions }: SettingsPageProps) {
             <p>4. 换机或清除数据后，可通过“恢复备份”随时完整导入历史记录。</p>
           </div>
           <div className="app-version">
-            <span>应用版本：v1.0.1 ({isNative ? 'Android 原生版' : 'PWA 离线版'})</span>
+            <span>应用版本：v1.0.2 ({isNative ? 'Android 原生版' : 'PWA 离线版'})</span>
           </div>
         </section>
       </div>
