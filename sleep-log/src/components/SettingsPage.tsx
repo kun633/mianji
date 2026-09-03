@@ -14,6 +14,7 @@ import type { BackupCapability, BackupStatus } from '../data/file-backup';
 import type { StorageProtectionState } from '../data/browser-storage';
 import type { SleepSegment } from '../domain/sleep';
 import { displayDate } from '../domain/stats';
+import { isNativeApp } from '../native/platform';
 
 export interface SettingsModel {
   capability: BackupCapability;
@@ -54,6 +55,67 @@ export function SettingsPage({ model, timezone, actions }: SettingsPageProps) {
   const [feedbackSending, setFeedbackSending] = useState(false);
   const [feedbackStatus, setFeedbackStatus] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
   const [copied, setCopied] = useState(false);
+  const isNative = isNativeApp();
+  const [checkingUpdate, setCheckingUpdate] = useState(false);
+  const [updateStatus, setUpdateStatus] = useState<{
+    hasUpdate: boolean;
+    message: string;
+    latestVersion?: string;
+    downloadUrl?: string;
+  } | null>(null);
+
+  const handleCheckUpdate = async () => {
+    setCheckingUpdate(true);
+    setUpdateStatus(null);
+    try {
+      const res = await fetch('https://api.github.com/repos/kun633/mianji/releases/latest', {
+        headers: { Accept: 'application/vnd.github.v3+json' },
+      });
+      if (!res.ok) throw new Error('网络请求失败');
+      const data = await res.json();
+      const tagName: string = data.tag_name || '';
+      const latestVer = tagName.replace(/^v/, '');
+      const currentVer = '1.0.1';
+
+      const compareVersions = (v1: string, v2: string) => {
+        const p1 = v1.split('.').map(Number);
+        const p2 = v2.split('.').map(Number);
+        for (let i = 0; i < Math.max(p1.length, p2.length); i++) {
+          const n1 = p1[i] || 0;
+          const n2 = p2[i] || 0;
+          if (n1 > n2) return 1;
+          if (n1 < n2) return -1;
+        }
+        return 0;
+      };
+
+      const assets = Array.isArray(data.assets) ? data.assets : [];
+      const apkAsset = assets.find((a: { name?: string }) => typeof a.name === 'string' && a.name.endsWith('.apk'));
+      const downloadUrl = (apkAsset as { browser_download_url?: string } | undefined)?.browser_download_url || (data.html_url as string) || 'https://github.com/kun633/mianji/releases';
+
+      if (compareVersions(latestVer, currentVer) > 0) {
+        setUpdateStatus({
+          hasUpdate: true,
+          message: `发现新版本 ${tagName}！点击下方按钮直接下载更新安装包。`,
+          latestVersion: latestVer,
+          downloadUrl,
+        });
+      } else {
+        setUpdateStatus({
+          hasUpdate: false,
+          message: `✓ 当前已是最新版本 (v${currentVer})`,
+        });
+      }
+    } catch {
+      setUpdateStatus({
+        hasUpdate: false,
+        message: '检查更新未成功，请确认网络连接或梯子状态。您也可以直接访问 GitHub 仓库查看最新版本。',
+        downloadUrl: 'https://github.com/kun633/mianji/releases',
+      });
+    } finally {
+      setCheckingUpdate(false);
+    }
+  };
 
   useEffect(() => {
     if (!operationMessage) return;
@@ -263,17 +325,25 @@ export function SettingsPage({ model, timezone, actions }: SettingsPageProps) {
             <div className="status-row">
               <span className="status-label">当前状态</span>
               <span>
-                {model.storageProtection === 'checking' && '正在检查浏览器保护状态…'}
-                {model.storageProtection === 'granted' && '已获得防自动清理保护'}
-                {model.storageProtection === 'not-granted' && '尚未获得防自动清理保护'}
-                {model.storageProtection === 'unsupported' && '当前浏览器不支持此项保护'}
-                {model.storageProtection === 'unknown' && '暂时无法确认保护状态'}
+                {isNative
+                  ? '已获得原生沙箱持久保护'
+                  : (
+                    <>
+                      {model.storageProtection === 'checking' && '正在检查浏览器保护状态…'}
+                      {model.storageProtection === 'granted' && '已获得防自动清理保护'}
+                      {model.storageProtection === 'not-granted' && '尚未获得防自动清理保护'}
+                      {model.storageProtection === 'unsupported' && '当前浏览器不支持此项保护'}
+                      {model.storageProtection === 'unknown' && '暂时无法确认保护状态'}
+                    </>
+                  )}
               </span>
             </div>
             <p className="hint-text">
-              此保护只能降低浏览器因空间不足自动清理数据的风险，不能防止主动清除网站数据、卸载浏览器、换机或设备损坏。
+              {isNative
+                ? '在 Android 原生应用中，数据已存放在手机私有沙箱的 SQLite 本地数据库中，操作系统不会像清理浏览器缓存那样清理数据。'
+                : '此保护只能降低浏览器因空间不足自动清理数据的风险，不能防止主动清除网站数据、卸载浏览器、换机或设备损坏。'}
             </p>
-            {(model.storageProtection === 'not-granted' || model.storageProtection === 'unknown') && (
+            {!isNative && (model.storageProtection === 'not-granted' || model.storageProtection === 'unknown') && (
               <button
                 type="button"
                 className="full-button primary-action-btn"
@@ -286,12 +356,12 @@ export function SettingsPage({ model, timezone, actions }: SettingsPageProps) {
         </section>
 
         {/* 自动备份状态与文件夹 */}
-        {model.capability === 'folder-auto' && (
+        {!isNative && model.capability === 'folder-auto' && (
           <section className="settings-section" aria-label="自动备份状态">
             <h2>手机自动备份</h2>
             <div className="status-card">
               <p className="hint-text">
-                授权手机文件夹后，每次记录变更会自动写入独立备份文件。请注意：在浏览器完全关闭时无法在后台自动写入。
+                授权文件夹后，每次记录变更会自动写入独立备份文件。请注意：在浏览器完全关闭时无法在后台自动写入。
               </p>
               <div className="status-row">
                 <span className="status-label">最近自动备份</span>
@@ -514,17 +584,55 @@ export function SettingsPage({ model, timezone, actions }: SettingsPageProps) {
           </div>
         </section>
 
+        {/* 软件版本与检查更新 */}
+        <section className="settings-section" aria-label="软件版本与更新">
+          <h2>软件版本与更新</h2>
+          <div className="status-card">
+            <div className="status-row">
+              <span className="status-label">当前运行版本</span>
+              <span>v1.0.1 ({isNative ? 'Android 原生版' : 'Web 网页版'})</span>
+            </div>
+            <p className="hint-text">
+              支持一键联网检测 GitHub 官方发布的最新版本，并可直接下载更新安装包（覆盖安装数据不丢失）。
+            </p>
+            {updateStatus && (
+              <p className={updateStatus.hasUpdate ? 'warning-text' : 'hint-text'} style={{ marginTop: '0.5rem', marginBottom: '0.5rem' }}>
+                {updateStatus.message}
+              </p>
+            )}
+            {updateStatus?.downloadUrl && (
+              <a
+                href={updateStatus.downloadUrl}
+                target="_blank"
+                rel="noreferrer"
+                className="full-button primary-action-btn"
+                style={{ display: 'block', textAlign: 'center', textDecoration: 'none', marginBottom: '0.5rem', color: '#ffffff' }}
+              >
+                {updateStatus.hasUpdate ? `立即下载新版本 (v${updateStatus.latestVersion})` : '前往 GitHub Releases 查看'}
+              </a>
+            )}
+            <button
+              type="button"
+              className="full-button export-btn"
+              onClick={() => void handleCheckUpdate()}
+              disabled={checkingUpdate}
+            >
+              {checkingUpdate ? '正在检查更新…' : '检查新版本'}
+            </button>
+          </div>
+        </section>
+
         {/* 重要说明与版本 */}
         <section className="settings-section info-section" aria-label="关于与说明">
           <h2>重要数据保护说明</h2>
           <div className="info-card">
-            <p>1. 数据默认存储在本机浏览器的 IndexedDB 数据库中。</p>
-            <p>2. 网页版无法承诺永久锁定存储；若清理浏览器网站数据或卸载浏览器，可能会清除本地记录。</p>
+            <p>1. 数据默认存储在本机的安全存储（Android 原生 SQLite / 浏览器 IndexedDB）中。</p>
+            <p>2. 原生 App 受系统沙箱保护；若在网页端使用，清理浏览器数据可能会影响记录。</p>
             <p>3. 建议定期点击上方“导出完整备份 (JSON)”将数据保存到其他存储设备或云盘。</p>
             <p>4. 换机或清除数据后，可通过“恢复备份”随时完整导入历史记录。</p>
           </div>
           <div className="app-version">
-            <span>应用版本：0.1.0 (PWA 离线版)</span>
+            <span>应用版本：v1.0.1 ({isNative ? 'Android 原生版' : 'PWA 离线版'})</span>
           </div>
         </section>
       </div>

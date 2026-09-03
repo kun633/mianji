@@ -21,6 +21,10 @@ export default defineConfig(({ mode }) => {
               replacement: fileURLToPath(new URL('./src/native/widget-bridge-noop.ts', import.meta.url)),
             },
             {
+              find: /.*\/native\/platform(\.ts)?$/,
+              replacement: fileURLToPath(new URL('./src/native/platform-noop.ts', import.meta.url)),
+            },
+            {
               find: /.*\/data\/repository-factory(\.ts)?$/,
               replacement: fileURLToPath(new URL('./src/data/repository-factory-noop.ts', import.meta.url)),
             },
