@@ -5,5 +5,5 @@
     android:updatePeriodMillis="1800000"
     android:initialLayout="@layout/sleep_widget"
     android:resizeMode="horizontal|vertical"
-    android:widgetCategory="home_screen">
+    android:widgetCategory="home_screen|keyguard">
 </appwidget-provider>

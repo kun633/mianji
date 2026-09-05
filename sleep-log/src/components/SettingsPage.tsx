@@ -26,8 +26,8 @@ export interface SettingsModel {
 
 export interface SettingsActions {
   chooseFolder(): Promise<void>;
-  exportJson(): Promise<void>;
-  exportCsv(): Promise<void>;
+  exportJson(): Promise<string | void>;
+  exportCsv(): Promise<string | void>;
   restore(expected: SleepSegment[], segments: SleepSegment[]): Promise<void>;
   requestStorageProtection(): Promise<void>;
 }
@@ -64,6 +64,8 @@ export function SettingsPage({ model, timezone, actions }: SettingsPageProps) {
     latestVersion?: string;
     downloadUrl?: string;
   } | null>(null);
+  const [pasteModalOpen, setPasteModalOpen] = useState(false);
+  const [manualText, setManualText] = useState('');
 
   const handleCheckUpdate = async () => {
     setCheckingUpdate(true);
@@ -76,7 +78,7 @@ export function SettingsPage({ model, timezone, actions }: SettingsPageProps) {
       const data = await res.json();
       const tagName: string = data.tag_name || '';
       const latestVer = tagName.replace(/^v/, '');
-      const currentVer = '1.0.5';
+      const currentVer = '1.0.6';
 
       const compareVersions = (v1: string, v2: string) => {
         const p1 = v1.split('.').map(Number);
@@ -213,9 +215,7 @@ export function SettingsPage({ model, timezone, actions }: SettingsPageProps) {
     Date.now()
   );
 
-  const handleFileSelect = async (e: ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
+  const handleProcessBackupText = (text: string) => {
     setParseError(null);
     setBackupFile(null);
     setConflicts([]);
@@ -225,16 +225,48 @@ export function SettingsPage({ model, timezone, actions }: SettingsPageProps) {
     setOperationMessage(null);
 
     try {
-      const text = await file.text();
-      const parsed = parseBackup(text);
+      const trimmed = text.trim();
+      if (!trimmed) {
+        throw new Error('备份内容为空');
+      }
+      const parsed = parseBackup(trimmed);
       setBackupFile(parsed);
 
       const mergeResult = mergeBackup(model.segments, parsed.segments);
       setConflicts(mergeResult.conflicts);
       setMergeBase(mergeResult.merged);
       setPreviewSnapshot([...model.segments]);
+      setOperationMessage('✓ 备份解析成功，请在下方预览并确认恢复');
     } catch (err) {
-      setParseError(err instanceof Error ? err.message : '备份文件格式不正确');
+      setParseError(err instanceof Error ? err.message : '备份内容格式不正确，解析失败');
+    }
+  };
+
+  const handleFileSelect = async (e: ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    try {
+      const text = await file.text();
+      handleProcessBackupText(text);
+    } catch (err) {
+      setParseError(err instanceof Error ? err.message : '读取文件失败');
+    } finally {
+      e.target.value = '';
+    }
+  };
+
+  const handlePasteFromClipboard = async () => {
+    try {
+      if (typeof navigator !== 'undefined' && navigator.clipboard?.readText) {
+        const text = await navigator.clipboard.readText();
+        if (text && text.trim().startsWith('{')) {
+          handleProcessBackupText(text);
+          return;
+        }
+      }
+      setPasteModalOpen(true);
+    } catch {
+      setPasteModalOpen(true);
     }
   };
 
@@ -271,8 +303,11 @@ export function SettingsPage({ model, timezone, actions }: SettingsPageProps) {
     catch (error) { showError(error, '无法请求防自动清理保护'); }
   };
 
-  const handleExport = async (exportAction: () => Promise<void>) => {
-    try { await exportAction(); }
+  const handleExport = async (exportAction: () => Promise<string | void>) => {
+    try {
+      const msg = await exportAction();
+      setOperationMessage(msg || '导出成功！已保存至您的设备。');
+    }
     catch (error) { showError(error, '导出失败，请重试'); }
   };
 
@@ -428,13 +463,33 @@ export function SettingsPage({ model, timezone, actions }: SettingsPageProps) {
 
           <div className="restore-box">
             <h3>恢复备份 (JSON)</h3>
-            <label className="file-input-label" htmlFor="backup-file-input">
-              选择备份文件
-            </label>
+            <p className="hint-text">
+              支持直接从手机本地文件导入，或从微信/QQ复制备份文本后一键粘贴恢复。
+            </p>
+            <div className="button-group restore-action-group">
+              <label className="full-button primary-action-btn file-select-label" htmlFor="backup-file-input">
+                📂 从本地文件选择备份
+              </label>
+              <button
+                type="button"
+                className="full-button export-btn"
+                onClick={() => void handlePasteFromClipboard()}
+              >
+                📋 从剪贴板粘贴恢复
+              </button>
+              <button
+                type="button"
+                className="full-button export-btn"
+                onClick={() => setPasteModalOpen(true)}
+              >
+                📝 手动粘贴备份文本
+              </button>
+            </div>
             <input
               id="backup-file-input"
               type="file"
-              accept=".json"
+              accept="application/json,text/plain,text/*,.json,*/*"
+              style={{ display: 'none' }}
               aria-label="选择备份文件"
               onChange={(e) => void handleFileSelect(e)}
             />
@@ -591,7 +646,7 @@ export function SettingsPage({ model, timezone, actions }: SettingsPageProps) {
           <div className="status-card">
             <div className="status-row">
               <span className="status-label">当前运行版本</span>
-              <span>v1.0.5 ({isNative ? 'Android 原生版' : 'Web 网页版'})</span>
+              <span>v1.0.6 ({isNative ? 'Android 原生版' : 'Web 网页版'})</span>
             </div>
             <p className="hint-text">
               支持一键联网检测 GitHub 官方发布的最新版本，并可直接下载更新安装包（覆盖安装数据不丢失）。
@@ -651,10 +706,50 @@ export function SettingsPage({ model, timezone, actions }: SettingsPageProps) {
             <p>4. 换机或清除数据后，可通过“恢复备份”随时完整导入历史记录。</p>
           </div>
           <div className="app-version">
-            <span>应用版本：v1.0.5 ({isNative ? 'Android 原生版' : 'PWA 离线版'})</span>
+            <span>应用版本：v1.0.6 ({isNative ? 'Android 原生版' : 'PWA 离线版'})</span>
           </div>
         </section>
       </div>
+
+      {pasteModalOpen && (
+        <div className="modal-backdrop" role="presentation">
+          <section className="dialog" role="dialog" aria-modal="true" aria-labelledby="paste-dialog-title">
+            <h2 id="paste-dialog-title">粘贴备份文本恢复</h2>
+            <p>请将导出的 JSON 备份文本直接粘贴到下方：</p>
+            <textarea
+              className="feedback-textarea"
+              rows={6}
+              placeholder="在此处粘贴完整备份 JSON 文本（通常以 { 开头）..."
+              value={manualText}
+              onChange={(e) => setManualText(e.target.value)}
+              aria-label="备份文本输入框"
+            />
+            <div className="dialog-actions">
+              <button
+                type="button"
+                onClick={() => {
+                  setPasteModalOpen(false);
+                  setManualText('');
+                }}
+              >
+                取消
+              </button>
+              <button
+                type="button"
+                className="primary-button"
+                disabled={!manualText.trim()}
+                onClick={() => {
+                  handleProcessBackupText(manualText);
+                  setPasteModalOpen(false);
+                  setManualText('');
+                }}
+              >
+                解析并预览
+              </button>
+            </div>
+          </section>
+        </div>
+      )}
     </main>
   );
 }

@@ -564,6 +564,25 @@ h3 {
   color: var(--ink);
 }
 
+.restore-action-group {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+
+.file-select-label {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  cursor: pointer;
+  user-select: none;
+  font-weight: 600;
+  border-radius: 999px;
+  min-height: 44px;
+  padding: 0.6rem 1rem;
+}
+
 .restore-preview-card {
   background: var(--surface);
   border-radius: 0.75rem;

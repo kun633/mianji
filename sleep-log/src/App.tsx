@@ -22,7 +22,8 @@ import { HistoryPage, type HistoryActions } from './components/HistoryPage';
 import { SettingsPage, type SettingsActions, type SettingsModel } from './components/SettingsPage';
 import { UpdateNotice } from './components/UpdateNotice';
 import { registerAppServiceWorker } from './pwa/register';
-import { publishWidgetState } from './native/widget-bridge';
+import { publishWidgetState, nativeExportFile, checkPendingNativeAction } from './native/widget-bridge';
+import { isNativeApp } from './native/platform';
 
 const timezone = () => Intl.DateTimeFormat().resolvedOptions().timeZone || 'Asia/Shanghai';
 const clock = { nowIso: () => new Date().toISOString(), timezone };
@@ -147,7 +148,29 @@ export default function App({ initialRepository }: { initialRepository?: SleepRe
     void checkStorageProtection().then((state) => {
       if (active) setStorageProtection(state);
     });
-    return () => { active = false; };
+  
+  useEffect(() => {
+    const handleNativeShortcut = async () => {
+      const action = await checkPendingNativeAction();
+      if (action === 'wake') {
+        await todayActions.wake();
+      }
+    };
+    void handleNativeShortcut();
+    const onVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        void handleNativeShortcut();
+      }
+    };
+    document.addEventListener('visibilitychange', onVisibilityChange);
+    window.addEventListener('focus', onVisibilityChange);
+    return () => {
+      document.removeEventListener('visibilitychange', onVisibilityChange);
+      window.removeEventListener('focus', onVisibilityChange);
+    };
+  }, [todayActions]);
+
+  return () => { active = false; };
   }, []);
 
   useEffect(() => {
@@ -337,7 +360,25 @@ export default function App({ initialRepository }: { initialRepository?: SleepRe
     exportJson: async () => {
       const text = createBackup(segments, clock.nowIso());
       const dateStr = displayDate(clock.nowIso(), clock.timezone());
-      downloadBackup(text, `眠记-备份-${dateStr}.json`);
+      const filename = `眠记-备份-${dateStr}.json`;
+      let feedbackMsg = '备份文件已生成并下载到您的设备。';
+
+      if (isNativeApp()) {
+        const res = await nativeExportFile({
+          content: text,
+          filename,
+          mimeType: 'application/json',
+          title: '导出眠记完整备份 (JSON)',
+        });
+        if (res?.success) {
+          feedbackMsg = `✓ 导出成功！已保存至【${res.savedPath || '手机下载文件夹'}】，并已呼出系统分享面板。`;
+        } else {
+          downloadBackup(text, filename);
+        }
+      } else {
+        downloadBackup(text, filename);
+      }
+
       const status: BackupStatus = {
         ...backupStatus,
         lastManualExportAt: clock.nowIso(),
@@ -345,11 +386,30 @@ export default function App({ initialRepository }: { initialRepository?: SleepRe
       };
       await settingsRepository.setStatus(status);
       setBackupStatus(status);
+      return feedbackMsg;
     },
     exportCsv: async () => {
       const text = toCsv(segments);
       const dateStr = displayDate(clock.nowIso(), clock.timezone());
-      downloadBackup(text, `眠记-睡眠记录-${dateStr}.csv`, 'text/csv;charset=utf-8');
+      const filename = `眠记-睡眠记录-${dateStr}.csv`;
+      let feedbackMsg = '表格文件已生成并下载到您的设备。';
+
+      if (isNativeApp()) {
+        const res = await nativeExportFile({
+          content: text,
+          filename,
+          mimeType: 'text/csv',
+          title: '导出眠记睡眠记录表格 (CSV)',
+        });
+        if (res?.success) {
+          feedbackMsg = `✓ 表格导出成功！已保存至【${res.savedPath || '手机下载文件夹'}】，并已呼出系统分享面板。`;
+        } else {
+          downloadBackup(text, filename, 'text/csv;charset=utf-8');
+        }
+      } else {
+        downloadBackup(text, filename, 'text/csv;charset=utf-8');
+      }
+      return feedbackMsg;
     },
     restore: async (expected, newSegments) => {
       if (!await repository.replaceAllIfUnchanged(expected, newSegments)) {
