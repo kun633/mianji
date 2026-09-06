@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   AutoBackupTrigger,
   BrowserFileBackup,
@@ -148,29 +148,9 @@ export default function App({ initialRepository }: { initialRepository?: SleepRe
     void checkStorageProtection().then((state) => {
       if (active) setStorageProtection(state);
     });
-  
-  useEffect(() => {
-    const handleNativeShortcut = async () => {
-      const action = await checkPendingNativeAction();
-      if (action === 'wake') {
-        await todayActions.wake();
-      }
-    };
-    void handleNativeShortcut();
-    const onVisibilityChange = () => {
-      if (document.visibilityState === 'visible') {
-        void handleNativeShortcut();
-      }
-    };
-    document.addEventListener('visibilitychange', onVisibilityChange);
-    window.addEventListener('focus', onVisibilityChange);
     return () => {
-      document.removeEventListener('visibilitychange', onVisibilityChange);
-      window.removeEventListener('focus', onVisibilityChange);
+      active = false;
     };
-  }, [todayActions]);
-
-  return () => { active = false; };
   }, []);
 
   useEffect(() => {
@@ -336,6 +316,30 @@ export default function App({ initialRepository }: { initialRepository?: SleepRe
       await refreshData();
     },
   };
+
+  const todayActionsRef = useRef(todayActions);
+  todayActionsRef.current = todayActions;
+
+  useEffect(() => {
+    const handleNativeShortcut = async () => {
+      const action = await checkPendingNativeAction();
+      if (action === 'wake') {
+        await todayActionsRef.current.wake();
+      }
+    };
+    void handleNativeShortcut();
+    const onVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        void handleNativeShortcut();
+      }
+    };
+    document.addEventListener('visibilitychange', onVisibilityChange);
+    window.addEventListener('focus', onVisibilityChange);
+    return () => {
+      document.removeEventListener('visibilitychange', onVisibilityChange);
+      window.removeEventListener('focus', onVisibilityChange);
+    };
+  }, []);
 
   const historyActions: HistoryActions = {
     changeKind: async (id, kind) => {

@@ -20,3 +20,11 @@ export async function publishWidgetState(
 export async function openNativeAppSettings(): Promise<void> {
   // Pure web stub
 }
+
+export async function checkPendingNativeAction(): Promise<string | null> {
+  return null;
+}
+
+export async function nativeExportFile(_options: unknown): Promise<null> {
+  return null;
+}

@@ -178,7 +178,10 @@ public class MainActivity extends BridgeActivity {
                 return;
             }
 
+            byte[] bytes = content.getBytes(StandardCharsets.UTF_8);
             String savedPath = null;
+            boolean writeSuccess = false;
+
             try {
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                     ContentValues values = new ContentValues();
@@ -190,7 +193,9 @@ public class MainActivity extends BridgeActivity {
                     if (downloadUri != null) {
                         try (OutputStream os = resolver.openOutputStream(downloadUri)) {
                             if (os != null) {
-                                os.write(content.getBytes(StandardCharsets.UTF_8));
+                                os.write(bytes);
+                                os.flush();
+                                writeSuccess = true;
                                 savedPath = "手机存储/Download/眠记/" + filename;
                             }
                         }
@@ -203,11 +208,14 @@ public class MainActivity extends BridgeActivity {
                     }
                     File destFile = new File(mianjiDir, filename);
                     try (FileOutputStream fos = new FileOutputStream(destFile)) {
-                        fos.write(content.getBytes(StandardCharsets.UTF_8));
+                        fos.write(bytes);
+                        fos.flush();
+                        writeSuccess = true;
                         savedPath = destFile.getAbsolutePath();
                     }
                 }
-            } catch (Exception ignored) {
+            } catch (Exception e) {
+                // Log and continue to cache share fallback if needed
             }
 
             try {
@@ -217,7 +225,8 @@ public class MainActivity extends BridgeActivity {
                 }
                 File shareFile = new File(cachePath, filename);
                 try (FileOutputStream fos = new FileOutputStream(shareFile)) {
-                    fos.write(content.getBytes(StandardCharsets.UTF_8));
+                    fos.write(bytes);
+                    fos.flush();
                 }
 
                 Uri contentUri = FileProvider.getUriForFile(
@@ -250,10 +259,10 @@ public class MainActivity extends BridgeActivity {
 
                 JSObject ret = new JSObject();
                 ret.put("success", true);
-                ret.put("savedPath", savedPath != null ? savedPath : "系统缓存与分享面板");
+                ret.put("savedPath", savedPath != null ? savedPath : "系统文件分享面板");
                 call.resolve(ret);
             } catch (Exception e) {
-                call.reject("导出失败: " + e.getMessage());
+                call.reject("导出保存与分享失败: " + e.getMessage());
             }
         }
     }
@@ -278,6 +287,7 @@ public class MainActivity extends BridgeActivity {
     private void handleIntent(Intent intent) {
         if (intent != null && "wake".equals(intent.getStringExtra("shortcutAction"))) {
             SleepWidgetBridgePlugin.pendingAction = "wake";
+            intent.removeExtra("shortcutAction");
         }
     }
 
@@ -299,7 +309,11 @@ public class MainActivity extends BridgeActivity {
     public void onResume() {
         super.onResume();
         applyLockScreenFlags();
-        handleIntent(getIntent());
+        Intent currentIntent = getIntent();
+        if (currentIntent != null && "wake".equals(currentIntent.getStringExtra("shortcutAction"))) {
+            SleepWidgetBridgePlugin.pendingAction = "wake";
+            currentIntent.removeExtra("shortcutAction");
+        }
     }
 
     private void applyLockScreenFlags() {
@@ -307,11 +321,11 @@ public class MainActivity extends BridgeActivity {
             setShowWhenLocked(true);
             setTurnScreenOn(true);
         }
+        // Removed FLAG_KEEP_SCREEN_ON to prevent battery drain while sleeping!
         getWindow().addFlags(
             WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED
             | WindowManager.LayoutParams.FLAG_DISMISS_KEYGUARD
             | WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON
-            | WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON
         );
     }
 }
