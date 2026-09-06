@@ -6,30 +6,28 @@ import android.app.NotificationManager;
 import android.app.PendingIntent;
 import android.appwidget.AppWidgetManager;
 import android.content.ComponentName;
-import android.content.ContentResolver;
-import android.content.ContentValues;
 import android.content.Context;
 import android.content.Intent;
 import android.content.SharedPreferences;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
-import android.os.Environment;
-import android.provider.MediaStore;
 import android.view.WindowManager;
+import android.webkit.WebView;
+import android.util.Log;
 
-import androidx.core.content.FileProvider;
 
 import com.getcapacitor.BridgeActivity;
+import com.getcapacitor.WebViewListener;
 import com.getcapacitor.JSObject;
 import com.getcapacitor.Plugin;
 import com.getcapacitor.PluginCall;
 import com.getcapacitor.PluginMethod;
 import com.getcapacitor.annotation.CapacitorPlugin;
 
-import java.io.File;
-import java.io.FileOutputStream;
 import java.io.OutputStream;
+import java.io.BufferedReader;
+import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
 
 public class MainActivity extends BridgeActivity {
@@ -165,111 +163,91 @@ public class MainActivity extends BridgeActivity {
             call.resolve();
         }
 
+        private volatile boolean exportInProgress = false;
+
         @PluginMethod
         public void exportFile(PluginCall call) {
-            String content = call.getString("content", "");
-            String filename = call.getString("filename", "mianji-backup.json");
-            String mimeType = call.getString("mimeType", "application/json");
-            String title = call.getString("title", "分享或保存备份");
-
-            Context context = getContext();
-            if (context == null) {
-                call.reject("Context is null");
+            if (exportInProgress) {
+                call.reject("另一个导出正在进行，请先完成或取消");
                 return;
             }
-
-            byte[] bytes = content.getBytes(StandardCharsets.UTF_8);
-            String savedPath = null;
-            boolean writeSuccess = false;
-
+            Intent intent = new Intent(Intent.ACTION_CREATE_DOCUMENT);
+            intent.addCategory(Intent.CATEGORY_OPENABLE);
+            intent.setType(call.getString("mimeType", "application/json"));
+            intent.putExtra(Intent.EXTRA_TITLE, call.getString("filename", "mianji-backup.json"));
+            exportInProgress = true;
             try {
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                    ContentValues values = new ContentValues();
-                    values.put(MediaStore.MediaColumns.DISPLAY_NAME, filename);
-                    values.put(MediaStore.MediaColumns.MIME_TYPE, mimeType);
-                    values.put(MediaStore.MediaColumns.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS + "/眠记");
-                    ContentResolver resolver = context.getContentResolver();
-                    Uri downloadUri = resolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, values);
-                    if (downloadUri != null) {
-                        try (OutputStream os = resolver.openOutputStream(downloadUri)) {
-                            if (os != null) {
-                                os.write(bytes);
-                                os.flush();
-                                writeSuccess = true;
-                                savedPath = "手机存储/Download/眠记/" + filename;
-                            }
-                        }
-                    }
-                } else {
-                    File downloadDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS);
-                    File mianjiDir = new File(downloadDir, "眠记");
-                    if (!mianjiDir.exists()) {
-                        mianjiDir.mkdirs();
-                    }
-                    File destFile = new File(mianjiDir, filename);
-                    try (FileOutputStream fos = new FileOutputStream(destFile)) {
-                        fos.write(bytes);
-                        fos.flush();
-                        writeSuccess = true;
-                        savedPath = destFile.getAbsolutePath();
-                    }
-                }
-            } catch (Exception e) {
-                // Log and continue to cache share fallback if needed
+                startActivityForResult(call, intent, "saveExportResult");
+            } catch (Exception error) {
+                exportInProgress = false;
+                call.reject("无法打开系统文件保存窗口", error);
             }
+        }
 
-            try {
-                File cachePath = new File(context.getCacheDir(), "exports");
-                if (!cachePath.exists()) {
-                    cachePath.mkdirs();
-                }
-                File shareFile = new File(cachePath, filename);
-                try (FileOutputStream fos = new FileOutputStream(shareFile)) {
-                    fos.write(bytes);
-                    fos.flush();
-                }
-
-                Uri contentUri = FileProvider.getUriForFile(
-                    context,
-                    context.getPackageName() + ".fileprovider",
-                    shareFile
-                );
-
-                Intent shareIntent = new Intent(Intent.ACTION_SEND);
-                shareIntent.setType(mimeType);
-                shareIntent.putExtra(Intent.EXTRA_STREAM, contentUri);
-                shareIntent.putExtra(Intent.EXTRA_SUBJECT, title);
-                shareIntent.putExtra(Intent.EXTRA_TEXT, "眠记数据备份：" + filename);
-                shareIntent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
-
-                Intent chooser = Intent.createChooser(shareIntent, title);
-                chooser.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-
-                if (getActivity() != null) {
-                    getActivity().runOnUiThread(() -> {
-                        try {
-                            getActivity().startActivity(chooser);
-                        } catch (Exception ex) {
-                            context.startActivity(chooser);
-                        }
-                    });
-                } else {
-                    context.startActivity(chooser);
-                }
-
+        @com.getcapacitor.annotation.ActivityCallback
+        private void saveExportResult(PluginCall call, androidx.activity.result.ActivityResult result) {
+            if (call == null) {
+                exportInProgress = false;
+                return;
+            }
+            if (result.getResultCode() != android.app.Activity.RESULT_OK) {
+                exportInProgress = false;
                 JSObject ret = new JSObject();
-                ret.put("success", true);
-                ret.put("savedPath", savedPath != null ? savedPath : "系统文件分享面板");
+                ret.put("success", false);
+                ret.put("cancelled", true);
                 call.resolve(ret);
-            } catch (Exception e) {
-                call.reject("导出保存与分享失败: " + e.getMessage());
+                return;
             }
+            Uri uri = result.getData() == null ? null : result.getData().getData();
+            if (uri == null) {
+                exportInProgress = false;
+                call.reject("系统未返回保存位置，请重试");
+                return;
+            }
+            execute(() -> {
+                try {
+                    // Only the user-selected document is opened. No broad storage permission.
+                    try (OutputStream stream = getContext().getContentResolver().openOutputStream(uri, "wt")) {
+                        if (stream == null) throw new java.io.IOException("无法写入选择的文件");
+                        stream.write(call.getString("content", "").getBytes(StandardCharsets.UTF_8));
+                        stream.flush();
+                    }
+                    JSObject ret = new JSObject();
+                    ret.put("success", true);
+                    ret.put("savedPath", call.getString("filename", "备份文件"));
+                    // Resolve only after the document stream has successfully CLOSED.
+                    call.resolve(ret);
+                } catch (Exception error) {
+                    call.reject("文件未成功保存，请检查存储空间或更换位置后重试", error);
+                } finally {
+                    exportInProgress = false;
+                }
+            });
         }
     }
 
     @Override
     public void onCreate(Bundle savedInstanceState) {
         registerPlugin(SleepWidgetBridgePlugin.class);
+        bridgeBuilder.addWebViewListener(new WebViewListener() {
+            private boolean checked = false;
+
+            @Override
+            public void onPageLoaded(WebView view) {
+                Uri page = Uri.parse(view.getUrl() == null ? "" : view.getUrl());
+                if (checked || !"localhost".equals(page.getHost())) return;
+                checked = true;
+                try (BufferedReader reader = new BufferedReader(new InputStreamReader(
+                        getAssets().open("native-cache-reset.js"), StandardCharsets.UTF_8))) {
+                    StringBuilder script = new StringBuilder();
+                    String line;
+                    while ((line = reader.readLine()) != null) script.append(line).append('\n');
+                    view.evaluateJavascript(script.toString(), null);
+                } catch (Exception error) {
+                    Log.e("Mianji", "Could not recover old app-shell cache", error);
+                }
+            }
+        });
         super.onCreate(savedInstanceState);
         applyLockScreenFlags();
         handleIntent(getIntent());

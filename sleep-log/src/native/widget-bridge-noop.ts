@@ -4,6 +4,7 @@ export interface WidgetStatePayload {
   subline: string;
   actionType: 'start' | 'wake' | 'view';
   updatedAt: string;
+  startTimeMs?: number;
 }
 
 export interface NativeWidgetBridge {

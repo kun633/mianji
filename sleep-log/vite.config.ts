@@ -14,7 +14,10 @@ export default defineConfig(({ mode }) => {
     base: './',
     resolve: {
       alias: isApp
-        ? []
+        ? [{
+            find: /.*\/pwa\/register(\.ts)?$/,
+            replacement: fileURLToPath(new URL('./src/pwa/register-native.ts', import.meta.url)),
+          }]
         : [
             {
               find: /.*\/native\/widget-bridge(\.ts)?$/,
@@ -32,7 +35,7 @@ export default defineConfig(({ mode }) => {
     },
     plugins: [
       react(),
-      VitePWA({
+      ...(!isApp ? [VitePWA({
         registerType: 'prompt',
         includeAssets: ['icon-192.svg', 'icon-512.svg'],
         manifest: {
@@ -53,7 +56,7 @@ export default defineConfig(({ mode }) => {
           navigateFallback: 'index.html',
           cleanupOutdatedCaches: true,
         },
-      }),
+      })] : []),
     ],
     test: {
       environment: 'jsdom',

@@ -1,13 +1,13 @@
 {
   "name": "mianji-sleep-log",
   "private": true,
-  "version": "1.0.7",
+  "version": "1.0.8",
   "type": "module",
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
     "build:web": "tsc -b && vite build --mode web && node scripts/check-web-bundle.mjs",
-    "build:app": "tsc -b && vite build --mode app",
+    "build:app": "tsc -b && vite build --mode app && node scripts/check-app-bundle.mjs",
     "check:web-bundle": "node scripts/check-web-bundle.mjs",
     "test": "vitest run",
     "test:watch": "vitest",

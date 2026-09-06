@@ -16,6 +16,7 @@ import type { SleepSegment } from '../domain/sleep';
 import { displayDate } from '../domain/stats';
 import { isNativeApp } from '../native/platform';
 import { openNativeAppSettings } from '../native/widget-bridge';
+import { version as appVersion } from '../../package.json';
 
 export interface SettingsModel {
   capability: BackupCapability;
@@ -78,7 +79,7 @@ export function SettingsPage({ model, timezone, actions }: SettingsPageProps) {
       const data = await res.json();
       const tagName: string = data.tag_name || '';
       const latestVer = tagName.replace(/^v/, '');
-      const currentVer = '1.0.6';
+      const currentVer = appVersion;
 
       const compareVersions = (v1: string, v2: string) => {
         const p1 = v1.split('.').map(Number);
@@ -646,7 +647,7 @@ export function SettingsPage({ model, timezone, actions }: SettingsPageProps) {
           <div className="status-card">
             <div className="status-row">
               <span className="status-label">当前运行版本</span>
-              <span>v1.0.7 ({isNative ? 'Android 原生版' : 'Web 网页版'})</span>
+              <span>v{appVersion} ({isNative ? 'Android 原生版' : 'Web 网页版'})</span>
             </div>
             <p className="hint-text">
               支持一键联网检测 GitHub 官方发布的最新版本，并可直接下载更新安装包（覆盖安装数据不丢失）。
@@ -706,7 +707,7 @@ export function SettingsPage({ model, timezone, actions }: SettingsPageProps) {
             <p>4. 换机或清除数据后，可通过“恢复备份”随时完整导入历史记录。</p>
           </div>
           <div className="app-version">
-            <span>应用版本：v1.0.7 ({isNative ? 'Android 原生版' : 'PWA 离线版'})</span>
+            <span>应用版本：v{appVersion} ({isNative ? 'Android 原生版' : 'PWA 离线版'})</span>
           </div>
         </section>
       </div>

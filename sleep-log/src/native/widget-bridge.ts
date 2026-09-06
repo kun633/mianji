@@ -15,6 +15,7 @@ export interface NativeWidgetBridge {
 
 export interface NativeExportResult {
   success: boolean;
+  cancelled?: boolean;
   savedPath?: string;
 }
 
@@ -66,12 +67,11 @@ export async function nativeExportFile(options: {
   mimeType: string;
   title: string;
 }): Promise<NativeExportResult | null> {
-  try {
-    if (Capacitor.isNativePlatform() && typeof SleepWidgetBridge.exportFile === 'function') {
-      return await SleepWidgetBridge.exportFile(options);
+  if (Capacitor.isNativePlatform()) {
+    if (typeof SleepWidgetBridge.exportFile !== 'function') {
+      throw new Error('当前安装包不支持文件保存，请更新应用');
     }
-  } catch (error) {
-    console.error('nativeExportFile error:', error);
+    return await SleepWidgetBridge.exportFile(options);
   }
   return null;
 }

@@ -3,6 +3,27 @@ import { CapacitorSQLite } from '@capacitor-community/sqlite';
 import { IndexedDbSleepRepository, type SleepRepository } from './repository';
 import { NativeSqliteSleepRepository, type SqliteAdapter } from './native-sqlite-repository';
 
+// SQLite's connection/transaction is shared. Queue every public operation so a
+// second UI action cannot enter (or roll back) the first action's transaction.
+function serializeRepository(repo: SleepRepository): SleepRepository {
+  let tail: Promise<unknown> = Promise.resolve();
+  const run = <T,>(operation: () => Promise<T>): Promise<T> => {
+    const result = tail.then(operation);
+    tail = result.catch(() => undefined);
+    return result;
+  };
+  return {
+    get: id => run(() => repo.get(id)),
+    list: () => run(() => repo.list()),
+    getActive: () => run(() => repo.getActive()),
+    createActiveIfNone: segment => run(() => repo.createActiveIfNone(segment)),
+    save: segment => run(() => repo.save(segment)),
+    remove: id => run(() => repo.remove(id)),
+    replaceAll: segments => run(() => repo.replaceAll(segments)),
+    replaceAllIfUnchanged: (expected, segments) => run(() => repo.replaceAllIfUnchanged(expected, segments)),
+  };
+}
+
 export async function createSleepRepository(customAdapter?: SqliteAdapter): Promise<SleepRepository> {
   if (customAdapter) {
     const repo = new NativeSqliteSleepRepository(customAdapter);
@@ -12,14 +33,18 @@ export async function createSleepRepository(customAdapter?: SqliteAdapter): Prom
   if (Capacitor.isNativePlatform()) {
     try {
       const dbName = 'mianji_sleep';
-      await CapacitorSQLite.createConnection({
+      const existing = await CapacitorSQLite.checkConnectionsConsistency({
+        dbNames: [dbName], openModes: ['RW'],
+      });
+      if (!existing.result) await CapacitorSQLite.createConnection({
         database: dbName,
         encrypted: false,
         mode: 'no-encryption',
         version: 1,
         readonly: false,
       });
-      await CapacitorSQLite.open({ database: dbName, readonly: false });
+      const isOpen = existing.result && (await CapacitorSQLite.isDBOpen({database: dbName, readonly: false})).result;
+      if (!isOpen) await CapacitorSQLite.open({ database: dbName, readonly: false });
 
       let inManualTransaction = false;
 
@@ -73,10 +98,10 @@ export async function createSleepRepository(customAdapter?: SqliteAdapter): Prom
 
       const repo = new NativeSqliteSleepRepository(adapter);
       await repo.initialize();
-      return repo;
+      return serializeRepository(repo);
     } catch (err) {
-      console.warn('Native SQLite 初始化失败，自动降级为 IndexedDb 存储:', err);
-      return new IndexedDbSleepRepository();
+      // Do not make existing records appear lost by silently opening another DB.
+      throw new Error('本地数据库暂时无法打开，请关闭应用后重试。请勿卸载或清除数据。', { cause: err });
     }
   }
   return new IndexedDbSleepRepository();

@@ -196,6 +196,7 @@ export default function App({ initialRepository }: { initialRepository?: SleepRe
         subline: `已睡 ${timeStr}`,
         actionType: 'wake',
         updatedAt: clock.nowIso(),
+        startTimeMs: Date.parse(model.segment.startAt),
       });
     } else if (model.state === 'finished') {
       void publishWidgetState({
@@ -362,7 +363,7 @@ export default function App({ initialRepository }: { initialRepository?: SleepRe
       });
     },
     exportJson: async () => {
-      const text = createBackup(segments, clock.nowIso());
+      const text = createBackup(await repository.list(), clock.nowIso());
       const dateStr = displayDate(clock.nowIso(), clock.timezone());
       const filename = `眠记-备份-${dateStr}.json`;
       let feedbackMsg = '备份文件已生成并下载到您的设备。';
@@ -374,11 +375,9 @@ export default function App({ initialRepository }: { initialRepository?: SleepRe
           mimeType: 'application/json',
           title: '导出眠记完整备份 (JSON)',
         });
-        if (res?.success) {
-          feedbackMsg = `✓ 导出成功！已保存至【${res.savedPath || '手机下载文件夹'}】，并已呼出系统分享面板。`;
-        } else {
-          downloadBackup(text, filename);
-        }
+        if (res?.cancelled) return '已取消导出，未保存备份。';
+        if (!res?.success) throw new Error('备份未成功保存，请重试');
+        feedbackMsg = `✓ 已保存【${res.savedPath || filename}】到您选择的位置。`;
       } else {
         downloadBackup(text, filename);
       }
@@ -393,7 +392,7 @@ export default function App({ initialRepository }: { initialRepository?: SleepRe
       return feedbackMsg;
     },
     exportCsv: async () => {
-      const text = toCsv(segments);
+      const text = toCsv(await repository.list());
       const dateStr = displayDate(clock.nowIso(), clock.timezone());
       const filename = `眠记-睡眠记录-${dateStr}.csv`;
       let feedbackMsg = '表格文件已生成并下载到您的设备。';
@@ -405,11 +404,9 @@ export default function App({ initialRepository }: { initialRepository?: SleepRe
           mimeType: 'text/csv',
           title: '导出眠记睡眠记录表格 (CSV)',
         });
-        if (res?.success) {
-          feedbackMsg = `✓ 表格导出成功！已保存至【${res.savedPath || '手机下载文件夹'}】，并已呼出系统分享面板。`;
-        } else {
-          downloadBackup(text, filename, 'text/csv;charset=utf-8');
-        }
+        if (res?.cancelled) return '已取消导出，未保存表格。';
+        if (!res?.success) throw new Error('表格未成功保存，请重试');
+        feedbackMsg = `✓ 已保存【${res.savedPath || filename}】到您选择的位置。`;
       } else {
         downloadBackup(text, filename, 'text/csv;charset=utf-8');
       }
