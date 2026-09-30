@@ -1,6 +1,13 @@
 export type SleepKind = 'night' | 'nap';
 export type SleepStatus = 'active' | 'completed' | 'uncertain' | 'invalid';
 
+export interface SleepReflection {
+  sleepOnsetAt: string | null;
+  alarmUsed: boolean | null;
+  wakeEnergy: number | null;
+  daytimeEnergy: number | null;
+}
+
 export interface SleepSegment {
   id: string;
   kind: SleepKind;
@@ -15,6 +22,25 @@ export interface SleepSegment {
   updatedAt: string;
   finishedAt: string | null;
   schemaVersion: 1;
+  reflection?: SleepReflection;
+}
+
+export function saveReflection(segment: SleepSegment, reflection: SleepReflection, now: string): SleepSegment {
+  if (segment.kind !== 'night' || segment.status !== 'completed' || !segment.endAt) {
+    throw new Error('只能补记已完成的夜间睡眠');
+  }
+  const validEnergy = (value: number | null) => value === null || (Number.isInteger(value) && value >= 1 && value <= 5);
+  if (!validEnergy(reflection.wakeEnergy) || !validEnergy(reflection.daytimeEnergy) ||
+      (reflection.alarmUsed !== null && typeof reflection.alarmUsed !== 'boolean')) {
+    throw new Error('补记评分无效');
+  }
+  if (reflection.sleepOnsetAt !== null) {
+    const onset = Date.parse(reflection.sleepOnsetAt);
+    if (!Number.isFinite(onset) || onset < Date.parse(segment.startAt) || onset > Date.parse(segment.endAt)) {
+      throw new Error('估计入睡时间应在开始与起床时间之间');
+    }
+  }
+  return { ...segment, reflection: { ...reflection }, updatedAt: now };
 }
 
 export function createSegment(input: { id: string; kind: SleepKind; groupId: string | null; now: string; timezone: string }): SleepSegment {
@@ -36,12 +62,12 @@ export function undoFinish(segment: SleepSegment, now: string): SleepSegment {
   if (!segment.finishedAt || segment.status !== 'completed') throw new Error('segment cannot be undone');
   const elapsed = Date.parse(now) - Date.parse(segment.finishedAt);
   if (!Number.isFinite(elapsed) || elapsed < 0 || elapsed > 60_000) throw new Error('undo window expired');
-  return { ...segment, endAt: null, endTimezone: null, status: 'active', finishedAt: null, updatedAt: now };
+  return { ...segment, endAt: null, endTimezone: null, status: 'active', finishedAt: null, updatedAt: now, reflection: undefined };
 }
 
 export function markUncertain(segment: SleepSegment, reason: string): SleepSegment {
   if (!segment.endAt) throw new Error('active segment cannot be marked uncertain');
-  return { ...segment, status: 'uncertain', uncertainReason: reason, updatedAt: segment.endAt };
+  return { ...segment, status: 'uncertain', uncertainReason: reason, updatedAt: segment.endAt, reflection: undefined };
 }
 
 export function resumeSegment(segment: SleepSegment, now: string): SleepSegment {
@@ -56,6 +82,7 @@ export function resumeSegment(segment: SleepSegment, now: string): SleepSegment 
     finishedAt: null,
     uncertainReason: null,
     updatedAt: now,
+    reflection: undefined,
   };
 }
 
@@ -73,6 +100,7 @@ export function extendWake(segment: SleepSegment, now: string, timezone: string)
     status: 'completed',
     finishedAt: now,
     updatedAt: now,
+    reflection: undefined,
   };
 }
 

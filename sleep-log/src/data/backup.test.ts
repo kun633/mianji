@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { createSegment, type SleepSegment } from '../domain/sleep';
+import type { SleepPlan } from '../domain/sleep-plan';
 import { createBackup, mergeBackup, parseBackup, resolveBackupMerge, shouldRemindManualBackup, toCsv } from './backup';
 
 const completedNight: SleepSegment = {
@@ -12,7 +13,37 @@ describe('versioned sleep backups', () => {
   it('round-trips a versioned backup', () => {
     const text = createBackup([completedNight], '2026-09-03T00:00:00.000Z');
     expect(parseBackup(text).segments).toEqual([completedNight]);
-    expect(JSON.parse(text)).toMatchObject({ app: '眠记', version: 1 });
+    expect(JSON.parse(text)).toMatchObject({ app: '眠记', version: 2, plan: null });
+  });
+
+  it('accepts old backups and keeps new reflections in JSON and CSV', () => {
+    const oldBackup = JSON.stringify({ app: '眠记', version: 1, exportedAt: '2026-09-03T00:00:00.000Z', segments: [completedNight] });
+    expect(parseBackup(oldBackup).segments[0].reflection).toBeUndefined();
+    const reflected = { ...completedNight, reflection: { sleepOnsetAt: null, alarmUsed: false, wakeEnergy: 4, daytimeEnergy: 3 } };
+    expect(parseBackup(createBackup([reflected])).segments).toEqual([reflected]);
+    expect(toCsv([reflected])).toContain('醒后精神');
+    expect(toCsv([reflected])).toContain('白天精神');
+  });
+
+  it('round-trips a paused plan in v2 but rejects malformed plan data', () => {
+    const plan: SleepPlan = { startedOn: '2026-09-30', baselineWakeMinutes: 620, targetWakeMinutes: 450, sleepOpportunityMinutes: 570, stepMinutes: 25, stepDays: 3, pausedOn: '2026-10-02', pausedDays: 0 };
+    const text = createBackup([completedNight], '2026-10-03T00:00:00.000Z', plan);
+    const parsed = parseBackup(text);
+    expect(parsed.version).toBe(2);
+    if (parsed.version === 2) expect(parsed.plan).toEqual(plan);
+    expect(() => parseBackup(text.replace('"stepMinutes": 25', '"stepMinutes": 0'))).toThrow('备份文件格式不正确');
+  });
+
+  it('rejects invalid reflections and treats different ratings as restore conflicts', () => {
+    const reflection = { sleepOnsetAt: null, alarmUsed: false, wakeEnergy: 4, daytimeEnergy: 3 };
+    const reflected = { ...completedNight, reflection };
+    expect(() => parseBackup(createBackup([{ ...reflected, reflection: { ...reflection, wakeEnergy: 6 } }]))).toThrow('备份文件格式不正确');
+    expect(() => parseBackup(createBackup([{ ...reflected, reflection: { ...reflection, sleepOnsetAt: '2026-09-03T12:00:00.000Z' } }]))).toThrow('备份文件格式不正确');
+    const changed = { ...reflected, reflection: { ...reflection, daytimeEnergy: 2 } };
+    expect(mergeBackup([reflected], [changed]).conflicts).toEqual([{ current: reflected, incoming: changed }]);
+    expect(mergeBackup([reflected], [{ ...reflected, reflection: {
+      daytimeEnergy: 3, wakeEnergy: 4, alarmUsed: false, sleepOnsetAt: null,
+    } }]).conflicts).toEqual([]);
   });
 
   it('rejects malformed or unsupported backup schemas', () => {
@@ -51,6 +82,22 @@ describe('versioned sleep backups', () => {
     const first = createSegment({ id: 'active-1', kind: 'night', groupId: 'night-active', now: '2026-09-03T00:00:00.000Z', timezone: 'Asia/Shanghai' });
     const second = createSegment({ id: 'active-2', kind: 'nap', groupId: null, now: '2026-09-03T01:00:00.000Z', timezone: 'Asia/Shanghai' });
     expect(() => parseBackup(createBackup([first, second]))).toThrow('备份文件格式不正确');
+  });
+
+  it('blocks a restore preview that would combine different active records', () => {
+    const current = createSegment({ id: 'current-active', kind: 'night', groupId: 'current', now: '2026-09-03T00:00:00.000Z', timezone: 'Asia/Shanghai' });
+    const incoming = createSegment({ id: 'backup-active', kind: 'night', groupId: 'backup', now: '2026-09-03T01:00:00.000Z', timezone: 'Asia/Shanghai' });
+    expect(() => mergeBackup([current], [incoming])).toThrow('合并后会出现两条“记录中”的记录');
+    expect(mergeBackup([current], [completedNight]).merged).toEqual([completedNight, current]);
+  });
+
+  it('blocks a conflict resolution that would create a second active record', () => {
+    const current = createSegment({ id: 'current-active', kind: 'night', groupId: 'current', now: '2026-09-03T00:00:00.000Z', timezone: 'Asia/Shanghai' });
+    const backupActive = createSegment({ id: completedNight.id, kind: 'night', groupId: 'backup', now: '2026-09-03T01:00:00.000Z', timezone: 'Asia/Shanghai' });
+    const result = mergeBackup([current, completedNight], [backupActive]);
+    expect(result.conflicts).toEqual([{ current: completedNight, incoming: backupActive }]);
+    expect(resolveBackupMerge(result.merged, result.conflicts, { [completedNight.id]: 'keep-current' })).toEqual(result.merged);
+    expect(() => resolveBackupMerge(result.merged, result.conflicts, { [completedNight.id]: 'use-backup' })).toThrow('合并后会出现两条“记录中”的记录');
   });
 
   it('does not deduplicate records whose non-id fields differ', () => {

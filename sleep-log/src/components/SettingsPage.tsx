@@ -13,6 +13,7 @@ import {
 import type { BackupCapability, BackupStatus } from '../data/file-backup';
 import type { StorageProtectionState } from '../data/browser-storage';
 import type { SleepSegment } from '../domain/sleep';
+import type { SleepPlan } from '../domain/sleep-plan';
 import { displayDate } from '../domain/stats';
 import { isNativeApp } from '../native/platform';
 import { openNativeAppSettings } from '../native/widget-bridge';
@@ -22,6 +23,7 @@ export interface SettingsModel {
   capability: BackupCapability;
   status: BackupStatus;
   segments: SleepSegment[];
+  plan?: SleepPlan | null;
   storageProtection: StorageProtectionState;
 }
 
@@ -29,7 +31,7 @@ export interface SettingsActions {
   chooseFolder(): Promise<void>;
   exportJson(): Promise<string | void>;
   exportCsv(): Promise<string | void>;
-  restore(expected: SleepSegment[], segments: SleepSegment[]): Promise<void>;
+  restore(expected: SleepSegment[], segments: SleepSegment[], expectedPlan?: SleepPlan | null, plan?: SleepPlan | null): Promise<void>;
   requestStorageProtection(): Promise<void>;
 }
 
@@ -50,6 +52,8 @@ export function SettingsPage({ model, timezone, actions }: SettingsPageProps) {
   const [conflicts, setConflicts] = useState<MergeConflict[]>([]);
   const [mergeBase, setMergeBase] = useState<SleepSegment[]>([]);
   const [previewSnapshot, setPreviewSnapshot] = useState<SleepSegment[]>([]);
+  const [previewPlan, setPreviewPlan] = useState<SleepPlan | null>(null);
+  const [planRestoreChoice, setPlanRestoreChoice] = useState<'keep-current' | 'use-backup'>('keep-current');
   const [resolutions, setResolutions] = useState<Record<string, ConflictResolution>>({});
   const [operationMessage, setOperationMessage] = useState<string | null>(null);
   const [feedbackText, setFeedbackText] = useState('');
@@ -222,6 +226,8 @@ export function SettingsPage({ model, timezone, actions }: SettingsPageProps) {
     setConflicts([]);
     setMergeBase([]);
     setPreviewSnapshot([]);
+    setPreviewPlan(null);
+    setPlanRestoreChoice('keep-current');
     setResolutions({});
     setOperationMessage(null);
 
@@ -231,12 +237,12 @@ export function SettingsPage({ model, timezone, actions }: SettingsPageProps) {
         throw new Error('备份内容为空');
       }
       const parsed = parseBackup(trimmed);
-      setBackupFile(parsed);
-
       const mergeResult = mergeBackup(model.segments, parsed.segments);
+      setBackupFile(parsed);
       setConflicts(mergeResult.conflicts);
       setMergeBase(mergeResult.merged);
       setPreviewSnapshot([...model.segments]);
+      setPreviewPlan(model.plan ?? null);
       setOperationMessage('✓ 备份解析成功，请在下方预览并确认恢复');
     } catch (err) {
       setParseError(err instanceof Error ? err.message : '备份内容格式不正确，解析失败');
@@ -281,10 +287,10 @@ export function SettingsPage({ model, timezone, actions }: SettingsPageProps) {
       return;
     }
 
-    const finalSegments = resolveBackupMerge(mergeBase, conflicts, resolutions);
-
     try {
-      await actions.restore(previewSnapshot, finalSegments);
+      const finalSegments = resolveBackupMerge(mergeBase, conflicts, resolutions);
+      const restoredPlan = backupFile.version === 2 && planRestoreChoice === 'use-backup' ? backupFile.plan : previewPlan;
+      await actions.restore(previewSnapshot, finalSegments, previewPlan, restoredPlan);
       setBackupFile(null);
       setConflicts([]);
       setResolutions({});
@@ -331,7 +337,14 @@ export function SettingsPage({ model, timezone, actions }: SettingsPageProps) {
   const formatTime = (value: string | null, segmentTimezone: string) => value
     ? new Intl.DateTimeFormat('zh-CN', { hour: '2-digit', minute: '2-digit', timeZone: segmentTimezone }).format(new Date(value))
     : '未结束';
-  const conflictValue = (segment: SleepSegment) => `${segment.kind === 'night' ? '夜间睡眠' : '午睡'}，${formatTime(segment.startAt, segment.startTimezone)} — ${formatTime(segment.endAt, segment.endTimezone ?? segment.startTimezone)}`;
+  const reflectionValue = (segment: SleepSegment) => {
+    const reflection = segment.reflection;
+    if (!reflection) return '补记：无';
+    const onset = reflection.sleepOnsetAt ? formatTime(reflection.sleepOnsetAt, segment.startTimezone) : '未记录';
+    const alarm = reflection.alarmUsed === null ? '未记录' : reflection.alarmUsed ? '是' : '否';
+    return `补记：估计入睡 ${onset}，闹钟 ${alarm}，醒后精神 ${reflection.wakeEnergy === null ? '未记录' : `${reflection.wakeEnergy}/5`}，白天精神 ${reflection.daytimeEnergy === null ? '未记录' : `${reflection.daytimeEnergy}/5`}`;
+  };
+  const conflictValue = (segment: SleepSegment) => `${segment.kind === 'night' ? '夜间睡眠' : '午睡'}，${formatTime(segment.startAt, segment.startTimezone)} — ${formatTime(segment.endAt, segment.endTimezone ?? segment.startTimezone)}；${reflectionValue(segment)}`;
   const hasUnresolvedConflicts = conflicts.some((conflict) => !resolutions[conflict.current.id]);
 
   return (
@@ -501,6 +514,14 @@ export function SettingsPage({ model, timezone, actions }: SettingsPageProps) {
               <div className="restore-preview-card">
                 <h4>备份预览</h4>
                 <p className="preview-text">{previewSummary()}</p>
+                {backupFile.version === 2 && (
+                  <fieldset className="plan-restore-choice">
+                    <legend>作息计划</legend>
+                    <p className="hint-text">备份中{backupFile.plan ? '包含渐进计划' : '没有渐进计划'}，请选择如何处理当前计划。</p>
+                    <label><input type="radio" name="plan-restore" checked={planRestoreChoice === 'keep-current'} onChange={() => setPlanRestoreChoice('keep-current')} />保留当前计划</label>
+                    <label><input type="radio" name="plan-restore" checked={planRestoreChoice === 'use-backup'} onChange={() => setPlanRestoreChoice('use-backup')} />使用备份中的计划</label>
+                  </fieldset>
+                )}
 
                 {conflicts.length > 0 && (
                   <div className="conflicts-section">

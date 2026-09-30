@@ -3,6 +3,56 @@ import { seedIndexedDb } from './fixtures';
 import type { SleepSegment } from '../src/domain/sleep';
 
 test.describe('Sleep Log PWA App Workflows', () => {
+  test('reflection, trend, and manual plan survive browser reload on narrow and wide screens', async ({ page }) => {
+    const today = new Intl.DateTimeFormat('sv-SE', { timeZone: 'Asia/Shanghai', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
+    const records: SleepSegment[] = Array.from({ length: 6 }, (_, index) => {
+      const day = new Date(`${today}T00:00:00.000Z`);
+      day.setUTCDate(day.getUTCDate() - index - 1);
+      const endAt = `${day.toISOString().slice(0, 10)}T01:00:00.000Z`;
+      const duration = index < 3 ? 8.5 : 9.5;
+      const startAt = new Date(Date.parse(endAt) - duration * 3600_000).toISOString();
+      return {
+        id: `reflection-${index}`,
+        kind: 'night', groupId: `night-${index}`,
+        startAt, startTimezone: 'Asia/Shanghai', endAt, endTimezone: 'Asia/Shanghai',
+        status: 'completed', uncertainReason: null, createdAt: startAt, updatedAt: endAt, finishedAt: endAt, schemaVersion: 1,
+        reflection: { sleepOnsetAt: null, alarmUsed: null, wakeEnergy: index < 3 ? 4 : 3, daytimeEnergy: index < 3 ? 5 : 2 },
+      };
+    });
+    await page.goto('/');
+    await seedIndexedDb(page, records);
+    await page.reload();
+    await page.getByRole('button', { name: '历史' }).click();
+
+    const comparison = page.getByRole('region', { name: '记录时长与精神对照' });
+    await expect(comparison).toContainText('8～不足9小时 · 3 夜');
+    await expect(comparison).toContainText('9小时及以上 · 3 夜');
+    await expect(comparison).toContainText('白天精神 · 3 条评分');
+    await expect(comparison).toContainText('5.0 / 5');
+    await expect(comparison).toContainText('2.0 / 5');
+
+    await page.setViewportSize({ width: 320, height: 568 });
+    const firstReflection = page.locator('.history-record-group .reflection-card').first();
+    await firstReflection.locator('summary').click();
+    await firstReflection.getByLabel('白天精神（可以稍后补填）').selectOption('4');
+    await firstReflection.getByRole('button', { name: '保存补记' }).click();
+    await expect(firstReflection.getByRole('status')).toHaveText('补记已保存');
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+
+    await page.getByRole('button', { name: '开始渐进计划' }).click();
+    await expect(page.getByRole('region', { name: '渐进作息计划' })).toContainText('建议起床 09:00');
+    await page.getByRole('button', { name: '暂停计划' }).click();
+    await page.reload();
+    await page.getByRole('button', { name: '历史' }).click();
+    await expect(page.getByRole('button', { name: '继续计划' })).toBeVisible();
+    await page.getByRole('button', { name: '继续计划' }).click();
+    await expect(page.getByRole('button', { name: '暂停计划' })).toBeVisible();
+
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await expect(page.locator('.history-record-group .reflection-card').first().getByLabel('白天精神（可以稍后补填）')).toHaveValue('4');
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+  });
+
   test('night sleep survives reload and supports real-time correction', async ({ page }) => {
     await page.goto('/');
     await page.getByRole('button', { name: '开始睡觉' }).click();
@@ -58,9 +108,9 @@ test.describe('Sleep Log PWA App Workflows', () => {
     await page.goto('/');
     await page.getByRole('button', { name: '历史' }).click();
 
-    await expect(page.getByText('平均午睡')).toBeVisible();
+    await expect(page.getByText('平均午睡记录时长')).toBeVisible();
     await expect(page.locator('.history-list-section').getByText('午睡').first()).toBeVisible();
-    await expect(page.locator('.stat-card').filter({ hasText: '平均午睡' }).getByText('2小时0分')).toBeVisible();
+    await expect(page.locator('.stat-card').filter({ hasText: '平均午睡记录时长' }).getByText('2小时0分')).toBeVisible();
   });
 
   test('“再睡一段” renders two segments in one night card', async ({ page }) => {
@@ -73,7 +123,7 @@ test.describe('Sleep Log PWA App Workflows', () => {
     await expect(page.getByRole('button', { name: '起床' })).toBeVisible();
     await page.getByRole('button', { name: '起床' }).click();
 
-    await expect(page.getByText('2 段合计')).toBeVisible();
+    await expect(page.getByText('2 段记录时长合计')).toBeVisible();
   });
 
   test('an active record seeded 21 hours earlier shows the three actions', async ({ page }) => {
@@ -144,7 +194,7 @@ test.describe('Sleep Log PWA App Workflows', () => {
     await page.getByRole('button', { name: '历史' }).click();
 
     await expect(page.getByText('1 条不准确记录未计入统计')).toBeVisible();
-    await expect(page.locator('.stat-card').filter({ hasText: '平均夜间睡眠' }).getByText('8小时0分')).toBeVisible();
+    await expect(page.locator('.stat-card').filter({ hasText: '平均夜间记录时长' }).getByText('8小时0分')).toBeVisible();
   });
 
   test('type correction never renders start/end inputs', async ({ page }) => {

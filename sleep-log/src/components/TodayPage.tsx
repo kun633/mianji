@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
 import type { SleepKind, SleepSegment } from '../domain/sleep';
 import { formatDuration } from '../domain/stats';
+import { SleepReflectionEditor } from './SleepReflectionEditor';
+import type { SleepReflection } from '../domain/sleep';
 
 export type TodayModel =
   | { state: 'idle'; lastNightMs: number | null; backupWarning: string | null }
@@ -17,6 +19,7 @@ export interface TodayActions {
   extendWake(id: string): Promise<void>;
   continueNight(id: string): Promise<void>;
   resolveOverlong(action: 'finish-uncertain' | 'delete' | 'continue'): Promise<void>;
+  saveReflection(id: string, value: SleepReflection): Promise<void>;
 }
 
 const formatTime = (value: string) => new Intl.DateTimeFormat('zh-CN', { hour: '2-digit', minute: '2-digit' }).format(new Date(value));
@@ -328,11 +331,17 @@ export function FinishedView({ model, actions }: { model: Extract<TodayModel, { 
       <h1>{model.segment.kind === 'night' ? '夜间睡眠' : '午睡'}</h1>
       <div className="summary-card">
         <strong>{formatDuration(totalMs)}</strong>
-        <span>{model.groupSegments.length > 1 ? `${model.groupSegments.length} 段合计` : '本次时长'}</span>
+        <span>{model.groupSegments.length > 1 ? `${model.groupSegments.length} 段记录时长合计` : '本次记录时长'}</span>
         <span>
           {formatTime(model.segment.startAt)} — {model.segment.endAt ? formatTime(model.segment.endAt) : '现在'}
         </span>
       </div>
+      {model.segment.kind === 'night' && model.segment.status === 'completed' && (
+        <details className="reflection-card" open={!model.segment.reflection}>
+          <summary>{model.segment.reflection ? '查看或修改睡后补记' : '补记醒后感受'}</summary>
+          <SleepReflectionEditor key={model.segment.id} segment={model.segment} onSave={actions.saveReflection} />
+        </details>
+      )}
       <div className="secondary-actions">
         {canUndo && <button type="button" onClick={() => void actions.undoWake(model.segment.id)}>撤销起床</button>}
         {isRecentFinish && !canUndo && (

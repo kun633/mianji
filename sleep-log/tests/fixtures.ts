@@ -4,7 +4,7 @@ import type { SleepSegment } from '../src/domain/sleep';
 export async function seedIndexedDb(page: Page, segments: SleepSegment[]) {
   await page.evaluate(async (items) => {
     return new Promise<void>((resolve, reject) => {
-      const request = indexedDB.open('mianji-sleep-log', 1);
+      const request = indexedDB.open('mianji-sleep-log');
       request.onupgradeneeded = () => {
         const db = request.result;
         if (!db.objectStoreNames.contains('segments')) {

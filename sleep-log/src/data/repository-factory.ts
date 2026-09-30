@@ -21,6 +21,9 @@ function serializeRepository(repo: SleepRepository): SleepRepository {
     remove: id => run(() => repo.remove(id)),
     replaceAll: segments => run(() => repo.replaceAll(segments)),
     replaceAllIfUnchanged: (expected, segments) => run(() => repo.replaceAllIfUnchanged(expected, segments)),
+    getPlan: () => run(() => repo.getPlan!()),
+    savePlan: plan => run(() => repo.savePlan!(plan)),
+    replaceAllWithPlanIfUnchanged: (expected, segments, expectedPlan, plan) => run(() => repo.replaceAllWithPlanIfUnchanged!(expected, segments, expectedPlan, plan)),
   };
 }
 

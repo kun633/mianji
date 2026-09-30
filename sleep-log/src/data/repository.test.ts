@@ -1,6 +1,7 @@
 import 'fake-indexeddb/auto';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createSegment } from '../domain/sleep';
+import { openDB } from 'idb';
 import { deleteSleepDatabase, IndexedDbSleepRepository } from './repository';
 
 describe('IndexedDbSleepRepository', () => {
@@ -13,6 +14,33 @@ describe('IndexedDbSleepRepository', () => {
     await first.save(segment);
     const reopened = new IndexedDbSleepRepository();
     expect((await reopened.getActive())?.id).toBe('seg-1');
+  });
+
+  it('upgrades a version 1 database without losing existing segments', async () => {
+    const old = await openDB('mianji-sleep-log', 1, { upgrade(db) {
+      const store = db.createObjectStore('segments', { keyPath: 'id' });
+      store.createIndex('by-status', 'status');
+      store.createIndex('by-start', 'startAt');
+    } });
+    const segment = createSegment({ id: 'old', kind: 'night', groupId: 'old-night', now: '2026-09-02T15:00:00.000Z', timezone: 'Asia/Shanghai' });
+    await old.put('segments', segment);
+    old.close();
+    const repo = new IndexedDbSleepRepository();
+    expect(await repo.list()).toEqual([segment]);
+    expect(await repo.getPlan()).toBeNull();
+  });
+
+  it('keeps records and plan together when a restore preview is stale', async () => {
+    const repo = new IndexedDbSleepRepository();
+    const segment = createSegment({ id: 'first', kind: 'night', groupId: 'g', now: '2026-09-02T15:00:00.000Z', timezone: 'Asia/Shanghai' });
+    const later = createSegment({ id: 'later', kind: 'nap', groupId: null, now: '2026-09-03T05:00:00.000Z', timezone: 'Asia/Shanghai' });
+    const plan = { startedOn: '2026-09-03', baselineWakeMinutes: 620, targetWakeMinutes: 450 as const, sleepOpportunityMinutes: 570 as const, stepMinutes: 25 as const, stepDays: 3 as const, pausedOn: null, pausedDays: 0 };
+    await repo.save(segment);
+    await repo.savePlan(plan);
+    await repo.save(later);
+    expect(await repo.replaceAllWithPlanIfUnchanged([segment], [], plan, null)).toBe(false);
+    expect(await repo.list()).toEqual([segment, later]);
+    expect(await repo.getPlan()).toEqual(plan);
   });
 
   it('replaces all records atomically', async () => {

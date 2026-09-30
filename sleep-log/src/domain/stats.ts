@@ -17,6 +17,42 @@ export interface SleepStats {
   excludedCount: number;
 }
 
+export interface ReflectionBucket {
+  label: '8～不足9小时' | '9小时及以上';
+  count: number;
+  wakeCount: number;
+  dayCount: number;
+  averageWakeEnergy: number | null;
+  averageDaytimeEnergy: number | null;
+}
+
+export function buildReflectionComparison(segments: SleepSegment[]): ReflectionBucket[] {
+  const totals = [
+    { label: '8～不足9小时' as const, count: 0, wakeSum: 0, wakeCount: 0, daySum: 0, dayCount: 0 },
+    { label: '9小时及以上' as const, count: 0, wakeSum: 0, wakeCount: 0, daySum: 0, dayCount: 0 },
+  ];
+  const grouped = groupSleepSegments(segments.filter((segment) => segment.kind === 'night'));
+  for (const group of grouped) {
+    if (group.segments.some((segment) => segment.status !== 'completed')) continue;
+    const latest = [...group.segments].reverse().find((segment) => segment.reflection);
+    const bucket = group.totalMs >= 9 * 3600000 ? totals[1] : group.totalMs >= 8 * 3600000 ? totals[0] : null;
+    if (!bucket || !latest?.reflection || (latest.reflection.wakeEnergy === null && latest.reflection.daytimeEnergy === null)) continue;
+    bucket.count++;
+    if (latest.reflection.wakeEnergy !== null) {
+      bucket.wakeSum += latest.reflection.wakeEnergy;
+      bucket.wakeCount++;
+    }
+    if (latest.reflection.daytimeEnergy !== null) {
+      bucket.daySum += latest.reflection.daytimeEnergy;
+      bucket.dayCount++;
+    }
+  }
+  return totals.map(({ label, count, wakeSum, wakeCount, daySum, dayCount }) => ({
+    label, count, wakeCount, dayCount,
+    averageWakeEnergy: wakeCount ? wakeSum / wakeCount : null, averageDaytimeEnergy: dayCount ? daySum / dayCount : null,
+  }));
+}
+
 export const formatDuration = (milliseconds: number | null): string => {
   if (milliseconds === null || milliseconds <= 0) return '0分';
   const totalMinutes = Math.round(milliseconds / 60000);

@@ -107,7 +107,7 @@ export function downloadBackup(text: string, filename: string, mimeType = 'appli
 
 export interface BackupTrigger { run(): Promise<void>; }
 export class AutoBackupTrigger implements BackupTrigger {
-  constructor(private sleep: Pick<SleepRepository, 'list'>, private settings: BackupSettingsRepository, private files: BrowserFileBackup, private now: () => string) {}
+  constructor(private sleep: Pick<SleepRepository, 'list' | 'getPlan'>, private settings: BackupSettingsRepository, private files: BrowserFileBackup, private now: () => string) {}
   async run(): Promise<void> {
     let current: BackupStatus = defaultStatus();
     try {
@@ -122,7 +122,7 @@ export class AutoBackupTrigger implements BackupTrigger {
         await this.settings.setStatus({ ...current, state: 'needs-permission', message: null });
         return;
       }
-      await this.files.writeTo(handle, createBackup(await this.sleep.list(), this.now()));
+      await this.files.writeTo(handle, createBackup(await this.sleep.list(), this.now(), await this.sleep.getPlan?.() ?? null));
       await this.settings.setStatus({
         ...current,
         state: 'ready',

@@ -15,6 +15,8 @@ import {
 import { createBackup, toCsv } from './data/backup';
 import { IndexedDbSleepRepository, type SleepRepository } from './data/repository';
 import type { SleepSegment } from './domain/sleep';
+import type { SleepReflection } from './domain/sleep';
+import { pauseSleepPlan, resumeSleepPlan, startSleepPlan, type SleepPlan } from './domain/sleep-plan';
 import { displayDate } from './domain/stats';
 import { SleepService } from './services/sleep-service';
 import { TodayPage, type TodayActions, type TodayModel } from './components/TodayPage';
@@ -94,6 +96,7 @@ export default function App({ initialRepository }: { initialRepository?: SleepRe
   const [tab, setTab] = useState<TabKey>('today');
   const [model, setModel] = useState<TodayModel | null>(null);
   const [segments, setSegments] = useState<SleepSegment[]>([]);
+  const [plan, setPlan] = useState<SleepPlan | null>(null);
   const [backupStatus, setBackupStatus] = useState<BackupStatus>({
     state: 'manual-only',
     lastSuccessfulBackupAt: null,
@@ -162,9 +165,11 @@ export default function App({ initialRepository }: { initialRepository?: SleepRe
   const refreshData = async () => {
     try {
       const list = await repository.list();
+      const currentPlan = await repository.getPlan?.() ?? null;
       const st = await settingsRepository.getStatus();
       const todayM = await loadTodayModel(service, repository);
       setSegments(list);
+      setPlan(currentPlan);
       setModel({ ...todayM, backupWarning: backupWarning(st) });
       setBackupStatus(st);
       setCapability(fileBackup.capability());
@@ -316,6 +321,10 @@ export default function App({ initialRepository }: { initialRepository?: SleepRe
       }
       await refreshData();
     },
+    saveReflection: async (id, value) => {
+      await service.saveReflection(id, value);
+      await refreshData();
+    },
   };
 
   const todayActionsRef = useRef(todayActions);
@@ -350,20 +359,54 @@ export default function App({ initialRepository }: { initialRepository?: SleepRe
       if (!await runVoidMutation(() => service.deleteSegment(id))) return;
       await refreshData();
     },
+    saveReflection: async (id: string, value: SleepReflection) => {
+      await service.saveReflection(id, value);
+      await refreshData();
+    },
+    startPlan: async () => {
+      await runVoidMutation(async () => {
+        await repository.savePlan?.(startSleepPlan(await repository.list(), displayDate(clock.nowIso(), clock.timezone())));
+        await backupTrigger.run();
+        await refreshData();
+      });
+    },
+    pausePlan: async () => {
+      if (!plan) return;
+      await runVoidMutation(async () => {
+        await repository.savePlan?.(pauseSleepPlan(plan, displayDate(clock.nowIso(), clock.timezone())));
+        await backupTrigger.run();
+        await refreshData();
+      });
+    },
+    resumePlan: async () => {
+      if (!plan) return;
+      await runVoidMutation(async () => {
+        await repository.savePlan?.(resumeSleepPlan(plan, displayDate(clock.nowIso(), clock.timezone())));
+        await backupTrigger.run();
+        await refreshData();
+      });
+    },
+    restartPlan: async () => {
+      await runVoidMutation(async () => {
+        await repository.savePlan?.(startSleepPlan(await repository.list(), displayDate(clock.nowIso(), clock.timezone())));
+        await backupTrigger.run();
+        await refreshData();
+      });
+    },
   };
 
   const settingsActions: SettingsActions = {
     chooseFolder: async () => {
       await runMutation(async () => {
         const handle = await fileBackup.chooseFolder();
-        await fileBackup.writeTo(handle, createBackup(segments, clock.nowIso()));
+        await fileBackup.writeTo(handle, createBackup(await repository.list(), clock.nowIso(), await repository.getPlan?.() ?? null));
         await settingsRepository.setDirectory(handle);
         await backupTrigger.run();
         await refreshData();
       });
     },
     exportJson: async () => {
-      const text = createBackup(await repository.list(), clock.nowIso());
+      const text = createBackup(await repository.list(), clock.nowIso(), await repository.getPlan?.() ?? null);
       const dateStr = displayDate(clock.nowIso(), clock.timezone());
       const filename = `眠记-备份-${dateStr}.json`;
       let feedbackMsg = '备份文件已生成并下载到您的设备。';
@@ -412,8 +455,11 @@ export default function App({ initialRepository }: { initialRepository?: SleepRe
       }
       return feedbackMsg;
     },
-    restore: async (expected, newSegments) => {
-      if (!await repository.replaceAllIfUnchanged(expected, newSegments)) {
+    restore: async (expected, newSegments, expectedPlan, newPlan) => {
+      const restored = repository.replaceAllWithPlanIfUnchanged
+        ? await repository.replaceAllWithPlanIfUnchanged(expected, newSegments, expectedPlan ?? null, newPlan ?? null)
+        : await repository.replaceAllIfUnchanged(expected, newSegments);
+      if (!restored) {
         throw new Error('记录已发生变化，请重新预览备份');
       }
       await backupTrigger.run();
@@ -431,6 +477,7 @@ export default function App({ initialRepository }: { initialRepository?: SleepRe
     capability,
     status: backupStatus,
     segments,
+    plan,
     storageProtection,
   };
 
@@ -480,6 +527,7 @@ export default function App({ initialRepository }: { initialRepository?: SleepRe
             today={currentTodayDate}
             timezone={clock.timezone()}
             actions={historyActions}
+            plan={plan}
           />
         )}
         {tab === 'settings' && (

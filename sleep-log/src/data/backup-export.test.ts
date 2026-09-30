@@ -51,7 +51,7 @@ describe('Backup Export Verification (JSON & CSV)', () => {
     const jsonStr = createBackup(sampleSegments, '2026-09-06T08:00:00Z');
     const parsed = parseBackup(jsonStr);
     expect(parsed.app).toBe('眠记');
-    expect(parsed.version).toBe(1);
+    expect(parsed.version).toBe(2);
     expect(parsed.segments).toHaveLength(2);
     expect(parsed.segments[0].id).toBe('seg-1');
     expect(parsed.segments[1].id).toBe('seg-2');

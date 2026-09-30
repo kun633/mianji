@@ -7,6 +7,8 @@ import {
   undoFinish,
   resumeSegment,
   extendWake,
+  saveReflection,
+  type SleepReflection,
   type SleepKind,
   type SleepSegment,
 } from '../domain/sleep';
@@ -97,6 +99,14 @@ export class SleepService {
     return extended;
   }
 
+  async saveReflection(id: string, reflection: SleepReflection) {
+    const current = await this.requireById(id);
+    const updated = saveReflection(current, reflection, this.clock.nowIso());
+    await this.repo.save(updated);
+    await this.triggerBackup();
+    return updated;
+  }
+
   async continueNight(previousId: string) {
     const previous = await this.requireById(previousId);
     if (previous.kind !== 'night' || !previous.groupId) throw new Error('只能继续夜间睡眠');
@@ -117,6 +127,7 @@ export class SleepService {
     const changed = {
       ...current,
       kind,
+      reflection: kind === 'nap' ? undefined : current.reflection,
       groupId: kind === 'nap' ? null : sameWakeDateNight?.segments[0]?.groupId ?? this.newId(),
       updatedAt: this.clock.nowIso(),
     };

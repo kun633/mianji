@@ -1,5 +1,5 @@
 import '@testing-library/jest-dom/vitest';
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { loadTodayModel } from '../App';
 import { TodayPage, type TodayActions, type TodayModel } from './TodayPage';
@@ -35,11 +35,17 @@ const makeActions = (): TodayActions => ({
   extendWake: vi.fn().mockResolvedValue(undefined),
   continueNight: vi.fn().mockResolvedValue(undefined),
   resolveOverlong: vi.fn().mockResolvedValue(undefined),
+  saveReflection: vi.fn().mockResolvedValue(undefined),
 });
 
 const makeHistoryActions = (): HistoryActions => ({
   changeKind: vi.fn().mockResolvedValue(undefined),
   deleteSegment: vi.fn().mockResolvedValue(undefined),
+  saveReflection: vi.fn().mockResolvedValue(undefined),
+  startPlan: vi.fn().mockResolvedValue(undefined),
+  pausePlan: vi.fn().mockResolvedValue(undefined),
+  resumePlan: vi.fn().mockResolvedValue(undefined),
+  restartPlan: vi.fn().mockResolvedValue(undefined),
 });
 
 const makeSettingsActions = (): SettingsActions => ({
@@ -83,6 +89,18 @@ describe('TodayPage', () => {
     fireEvent.click(screen.getByRole('button', { name: '开始睡觉' }));
     fireEvent.click(screen.getByRole('button', { name: '午睡' }));
     expect(actions.start).toHaveBeenCalledWith('nap');
+  });
+
+  it('saves an optional night reflection without editing the original interval', async () => {
+    const actions = makeActions();
+    render(<TodayPage model={completedModel} actions={actions} />);
+    fireEvent.change(screen.getByLabelText('开始记录后大约多久睡着（分钟）'), { target: { value: '30' } });
+    fireEvent.change(screen.getByLabelText('是否被闹钟叫醒'), { target: { value: 'false' } });
+    fireEvent.change(screen.getByLabelText('醒后精神'), { target: { value: '4' } });
+    fireEvent.click(screen.getByRole('button', { name: '保存补记' }));
+    await waitFor(() => expect(actions.saveReflection).toHaveBeenCalledWith('segment-1', {
+      sleepOnsetAt: '2026-09-02T22:30:00.000Z', alarmUsed: false, wakeEnergy: 4, daytimeEnergy: null,
+    }));
   });
 
   it('resets the active start only after confirmation', () => {
@@ -146,7 +164,7 @@ describe('TodayPage', () => {
         actions={actions}
       />
     );
-    expect(screen.getByText('2 段合计')).toBeInTheDocument();
+    expect(screen.getByText('2 段记录时长合计')).toBeInTheDocument();
     expect(screen.getByText('10小时0分')).toBeInTheDocument();
   });
 
@@ -323,6 +341,57 @@ describe('TodayPage', () => {
 
 describe('HistoryPage', () => {
   afterEach(() => cleanup());
+
+  it('shows a manual gradual plan with pause and restart controls', () => {
+    const actions = makeHistoryActions();
+    const plan = { startedOn: '2026-09-03', baselineWakeMinutes: 620, targetWakeMinutes: 450 as const, sleepOpportunityMinutes: 570 as const, stepMinutes: 25 as const, stepDays: 3 as const, pausedOn: null, pausedDays: 0 };
+    render(<HistoryPage segments={[makeSegment()]} today="2026-09-06" timezone="Asia/Shanghai" actions={actions} plan={plan} />);
+    expect(screen.getByText(/建议起床 09:55/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '暂停计划' }));
+    expect(actions.pausePlan).toHaveBeenCalledOnce();
+  });
+
+  it('starts the plan manually and offers resume and restart while paused', () => {
+    const actions = makeHistoryActions();
+    const segment = makeSegment();
+    const { rerender } = render(<HistoryPage segments={[segment]} today="2026-09-03" timezone="Asia/Shanghai" actions={actions} />);
+    expect(screen.getByText(/至少需要 1 段有效记录/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '开始渐进计划' }));
+    expect(actions.startPlan).toHaveBeenCalledOnce();
+
+    const pausedPlan = { startedOn: '2026-09-03', baselineWakeMinutes: 620, targetWakeMinutes: 450 as const, sleepOpportunityMinutes: 570 as const, stepMinutes: 25 as const, stepDays: 3 as const, pausedOn: '2026-09-03', pausedDays: 0 };
+    rerender(<HistoryPage segments={[segment]} today="2026-09-09" timezone="Asia/Shanghai" actions={actions} plan={pausedPlan} />);
+    expect(screen.getByText(/建议起床 10:20/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '继续计划' }));
+    fireEvent.click(screen.getByRole('button', { name: '按近期记录重新开始' }));
+    expect(actions.resumePlan).toHaveBeenCalledOnce();
+    expect(actions.restartPlan).toHaveBeenCalledOnce();
+  });
+
+  it('shows recorded duration and separate subjective scores without overstating an unscored metric', async () => {
+    const actions = makeHistoryActions();
+    const scored = [0, 1, 2].map((index) => makeSegment({
+      id: `scored-${index}`,
+      groupId: `night-${index}`,
+      startAt: `2026-09-0${index + 1}T13:00:00.000Z`,
+      endAt: `2026-09-0${index + 1}T21:30:00.000Z`,
+      finishedAt: `2026-09-0${index + 1}T21:30:00.000Z`,
+      reflection: { sleepOnsetAt: null, alarmUsed: null, wakeEnergy: null, daytimeEnergy: 4 },
+    }));
+    render(<HistoryPage segments={scored} today="2026-09-03" timezone="Asia/Shanghai" actions={actions} />);
+    expect(screen.getByText('平均夜间记录时长')).toBeInTheDocument();
+    const comparison = screen.getByRole('region', { name: '记录时长与精神对照' });
+    expect(comparison).toHaveTextContent('8～不足9小时 · 3 夜');
+    expect(comparison).toHaveTextContent('醒后精神 · 0 条评分 样本不足');
+    expect(comparison).toHaveTextContent('白天精神 · 3 条评分 4.0 / 5');
+
+    const first = screen.getAllByText('修改补记')[0];
+    fireEvent.click(first);
+    const form = first.closest('details')!;
+    fireEvent.change(within(form).getByLabelText('白天精神（可以稍后补填）'), { target: { value: '5' } });
+    fireEvent.click(form.querySelector('button[type="submit"]')!);
+    await waitFor(() => expect(actions.saveReflection).toHaveBeenCalledWith(expect.any(String), expect.objectContaining({ daytimeEnergy: 5 })));
+  }, 20_000);
 
   const completedNight = makeSegment({
     id: 'n-1',
@@ -511,7 +580,7 @@ describe('SettingsPage', () => {
     await waitFor(() => {
       expect(actions.restore).toHaveBeenCalledOnce();
     });
-    expect(actions.restore).toHaveBeenCalledWith(settingsModel.segments, [sampleSegment]);
+    expect(actions.restore).toHaveBeenCalledWith(settingsModel.segments, [sampleSegment], null, null);
   });
 
   it('restores the deduplicated preview instead of re-adding a different-id copy', async () => {
@@ -524,7 +593,7 @@ describe('SettingsPage', () => {
     await screen.findByText(/1 条记录/);
     fireEvent.click(screen.getByRole('button', { name: '确认恢复' }));
 
-    await waitFor(() => expect(actions.restore).toHaveBeenCalledWith(settingsModel.segments, [sampleSegment]));
+    await waitFor(() => expect(actions.restore).toHaveBeenCalledWith(settingsModel.segments, [sampleSegment], null, null));
   });
 
   it('requires an explicit choice for every conflict and shows the differing times', async () => {
@@ -541,7 +610,7 @@ describe('SettingsPage', () => {
     fireEvent.change(screen.getByLabelText('选择备份文件'), { target: { files: [file] } });
     const confirm = await screen.findByRole('button', { name: '确认恢复' });
     expect(confirm).toBeDisabled();
-    expect(screen.queryAllByRole('radio', { checked: true })).toHaveLength(0);
+    expect(screen.getAllByRole('radio', { name: '保留当前' }).filter((input) => (input as HTMLInputElement).checked)).toHaveLength(0);
     expect(screen.getByText(/当前：夜间睡眠，22:00 — 06:30/)).toBeInTheDocument();
     expect(screen.getByText(/备份：夜间睡眠，23:00 — 07:30/)).toBeInTheDocument();
 
@@ -549,6 +618,26 @@ describe('SettingsPage', () => {
     expect(confirm).toBeDisabled();
     fireEvent.click(screen.getAllByRole('radio', { name: '采用备份' })[1]);
     expect(confirm).toBeEnabled();
+  });
+
+  it('shows both reflections when a backup conflicts only in subjective fields', async () => {
+    const current = makeSegment({
+      id: 'reflection-conflict',
+      reflection: { sleepOnsetAt: '2026-09-02T22:30:00.000Z', alarmUsed: true, wakeEnergy: 2, daytimeEnergy: null },
+    });
+    const incoming = {
+      ...current,
+      reflection: { sleepOnsetAt: '2026-09-02T23:00:00.000Z', alarmUsed: false, wakeEnergy: 4, daytimeEnergy: 3 },
+    };
+    const file = new File([createBackup([incoming])], 'reflection-conflict.json', { type: 'application/json' });
+    render(<SettingsPage model={{ ...settingsModel, segments: [current] }} timezone="Asia/Shanghai" actions={makeSettingsActions()} />);
+
+    fireEvent.change(screen.getByLabelText('选择备份文件'), { target: { files: [file] } });
+    const confirm = await screen.findByRole('button', { name: '确认恢复' });
+    expect(confirm).toBeDisabled();
+    const conflict = screen.getByText(/记录 reflecti/).closest('.conflict-item')!;
+    expect(conflict).toHaveTextContent('当前：夜间睡眠，06:00 — 14:30；补记：估计入睡 06:30，闹钟 是，醒后精神 2/5，白天精神 未记录');
+    expect(conflict).toHaveTextContent('备份：夜间睡眠，06:00 — 14:30；补记：估计入睡 07:00，闹钟 否，醒后精神 4/5，白天精神 3/5');
   });
 
   it('shows the stale-preview restore error without discarding the preview', async () => {

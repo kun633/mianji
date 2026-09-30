@@ -2,11 +2,24 @@ import { describe, expect, it } from 'vitest';
 import { createSegment, type SleepSegment } from '../domain/sleep';
 import { NativeSqliteSleepRepository, type SqliteAdapter } from './native-sqlite-repository';
 
-function createInMemorySqliteAdapter(): SqliteAdapter {
-  const store = new Map<string, any>();
+function createInMemorySqliteAdapter(legacyRows: SleepSegment[] = []): SqliteAdapter {
+  const store = new Map<string, any>(legacyRows.map((row) => [row.id, { ...row }]));
+  let planValue: string | null = null;
+  let hasTable = legacyRows.length > 0;
+  let hasReflectionColumn = false;
   return {
     async execute(sql: string, values?: unknown[]) {
+      if (sql.includes('CREATE TABLE IF NOT EXISTS sleep_segments')) {
+        if (!hasTable) { hasTable = true; hasReflectionColumn = true; }
+        return;
+      }
       if (sql.includes('CREATE TABLE') || sql.includes('CREATE INDEX')) return;
+      if (sql.includes('INSERT OR REPLACE INTO sleep_plan')) { planValue = values?.[0] as string | null; return; }
+      if (sql.includes('ALTER TABLE sleep_segments ADD COLUMN reflectionJson')) {
+        if (hasReflectionColumn) throw new Error('duplicate column name: reflectionJson');
+        hasReflectionColumn = true;
+        return;
+      }
       if (sql.includes('DELETE FROM sleep_segments WHERE id = ?')) {
         store.delete(String(values?.[0]));
         return;
@@ -30,12 +43,15 @@ function createInMemorySqliteAdapter(): SqliteAdapter {
           updatedAt: values?.[10],
           finishedAt: values?.[11],
           schemaVersion: values?.[12],
+          reflectionJson: values?.[13],
         };
         store.set(String(seg.id), seg);
         return;
       }
     },
     async query<T>(sql: string, values?: unknown[]): Promise<T[]> {
+      if (sql.includes('PRAGMA table_info')) return (hasReflectionColumn ? [{ name: 'reflectionJson' }] : [{ name: 'schemaVersion' }]) as T[];
+      if (sql.includes('SELECT value FROM sleep_plan')) return planValue ? [{ value: planValue } as T] : [];
       if (sql.includes("status = 'active'")) {
         const found = [...store.values()].find((s) => s.status === 'active');
         return found ? [found as T] : [];
@@ -109,5 +125,36 @@ describe('NativeSqliteSleepRepository', () => {
 
     await repo.remove('nap-1');
     expect(await repo.list()).toHaveLength(0);
+  });
+
+  it('stores reflections and a pauseable plan alongside existing records', async () => {
+    const repo = new NativeSqliteSleepRepository(createInMemorySqliteAdapter());
+    await repo.initialize();
+    const completed = { ...activeNight, endAt: '2026-09-02T23:00:00.000Z', endTimezone: 'Asia/Shanghai', status: 'completed' as const, finishedAt: '2026-09-02T23:00:00.000Z', reflection: { sleepOnsetAt: null, alarmUsed: false, wakeEnergy: 4, daytimeEnergy: 3 } };
+    await repo.save(completed);
+    expect((await repo.get(completed.id))?.reflection).toEqual(completed.reflection);
+    const plan = { startedOn: '2026-09-03', baselineWakeMinutes: 620, targetWakeMinutes: 450 as const, sleepOpportunityMinutes: 570 as const, stepMinutes: 25 as const, stepDays: 3 as const, pausedOn: null, pausedDays: 0 };
+    await repo.savePlan(plan);
+    expect(await repo.getPlan()).toEqual(plan);
+  });
+
+  it('upgrades a legacy table without removing existing records and is safe to initialize again', async () => {
+    const adapter = createInMemorySqliteAdapter([activeNight]);
+    const repo = new NativeSqliteSleepRepository(adapter);
+    await repo.initialize();
+    await repo.initialize();
+    expect(await repo.list()).toEqual([activeNight]);
+    expect(await repo.getPlan()).toBeNull();
+  });
+
+  it('does not overwrite records or a changed plan from a stale restore preview', async () => {
+    const repo = new NativeSqliteSleepRepository(createInMemorySqliteAdapter());
+    await repo.initialize();
+    const plan = { startedOn: '2026-09-03', baselineWakeMinutes: 620, targetWakeMinutes: 450 as const, sleepOpportunityMinutes: 570 as const, stepMinutes: 25 as const, stepDays: 3 as const, pausedOn: null, pausedDays: 0 };
+    await repo.save(activeNight);
+    await repo.savePlan(plan);
+    expect(await repo.replaceAllWithPlanIfUnchanged([activeNight], [], null, null)).toBe(false);
+    expect(await repo.list()).toEqual([activeNight]);
+    expect(await repo.getPlan()).toEqual(plan);
   });
 });
