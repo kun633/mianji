@@ -12,10 +12,10 @@ const segmentFields: Array<keyof SleepSegment> = [
   'id', 'kind', 'groupId', 'startAt', 'startTimezone', 'endAt', 'endTimezone',
   'status', 'uncertainReason', 'createdAt', 'updatedAt', 'finishedAt', 'schemaVersion',
 ];
-const reflectionFields = ['sleepOnsetAt', 'alarmUsed', 'wakeEnergy', 'daytimeEnergy'] as const;
+const reflectionFields = ['sleepOnsetAt', 'alarmUsed', 'wakeEnergy', 'daytimeEnergy', 'sleepOnsetBand', 'nightAwakeningBand'] as const;
 const sameReflection = (left: SleepSegment['reflection'], right: SleepSegment['reflection']) =>
   left === right || (left !== undefined && right !== undefined &&
-    reflectionFields.every((field) => left[field] === right[field]));
+    reflectionFields.every((field) => Object.prototype.hasOwnProperty.call(left, field) === Object.prototype.hasOwnProperty.call(right, field) && left[field] === right[field]));
 
 const sameSnapshot = (left: SleepSegment[], right: SleepSegment[]) => {
   if (left.length !== right.length) return false;

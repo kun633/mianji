@@ -342,7 +342,11 @@ export function SettingsPage({ model, timezone, actions }: SettingsPageProps) {
     if (!reflection) return '补记：无';
     const onset = reflection.sleepOnsetAt ? formatTime(reflection.sleepOnsetAt, segment.startTimezone) : '未记录';
     const alarm = reflection.alarmUsed === null ? '未记录' : reflection.alarmUsed ? '是' : '否';
-    return `补记：估计入睡 ${onset}，闹钟 ${alarm}，醒后精神 ${reflection.wakeEnergy === null ? '未记录' : `${reflection.wakeEnergy}/5`}，白天精神 ${reflection.daytimeEnergy === null ? '未记录' : `${reflection.daytimeEnergy}/5`}`;
+    const onsetLabels: Record<string, string> = { under_15: '不到 15 分钟', '15_to_30': '约 15–30 分钟', '30_to_60': '约 30–60 分钟', over_60: '超过 1 小时', unknown: '记不清' };
+    const awakeningLabels: Record<string, string> = { none: '没有', one_or_two: '一两次', multiple_or_long: '多次或醒了很久', unknown: '记不清' };
+    const bands = reflection.sleepOnsetBand !== undefined || reflection.nightAwakeningBand !== undefined
+      ? `，入睡区间 ${reflection.sleepOnsetBand ? onsetLabels[reflection.sleepOnsetBand] : '未记录'}，夜间醒来 ${reflection.nightAwakeningBand ? awakeningLabels[reflection.nightAwakeningBand] : '未记录'}` : '';
+    return `补记：估计入睡 ${onset}，闹钟 ${alarm}，醒后精神 ${reflection.wakeEnergy === null ? '未记录' : `${reflection.wakeEnergy}/5`}，白天精神 ${reflection.daytimeEnergy === null ? '未记录' : `${reflection.daytimeEnergy}/5`}${bands}`;
   };
   const conflictValue = (segment: SleepSegment) => `${segment.kind === 'night' ? '夜间睡眠' : '午睡'}，${formatTime(segment.startAt, segment.startTimezone)} — ${formatTime(segment.endAt, segment.endTimezone ?? segment.startTimezone)}；${reflectionValue(segment)}`;
   const hasUnresolvedConflicts = conflicts.some((conflict) => !resolutions[conflict.current.id]);

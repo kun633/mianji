@@ -157,4 +157,25 @@ describe('NativeSqliteSleepRepository', () => {
     expect(await repo.list()).toEqual([activeNight]);
     expect(await repo.getPlan()).toEqual(plan);
   });
+
+  it('round-trips new bands and blocks both stale restore paths without a schema change', async () => {
+    const repo = new NativeSqliteSleepRepository(createInMemorySqliteAdapter());
+    await repo.initialize();
+    const night = { ...activeNight, endAt: '2026-09-02T22:00:00.000Z', status: 'completed' as const,
+      reflection: { alarmUsed: null, wakeEnergy: null, daytimeEnergy: null } };
+    await repo.save(night);
+    const plan = { startedOn: '2026-09-03', baselineWakeMinutes: 620, targetWakeMinutes: 450 as const, sleepOpportunityMinutes: 570 as const, stepMinutes: 25 as const, stepDays: 3 as const, pausedOn: null, pausedDays: 0 };
+    for (const changed of [
+      { ...night, reflection: { ...night.reflection, sleepOnsetBand: 'under_15' as const } },
+      { ...night, reflection: { ...night.reflection, nightAwakeningBand: 'multiple_or_long' as const } },
+    ]) {
+      const snapshot = await repo.list();
+      await repo.save(changed);
+      expect(await repo.get(night.id)).toEqual(changed);
+      expect(await repo.replaceAllIfUnchanged(snapshot, [])).toBe(false);
+      expect(await repo.replaceAllWithPlanIfUnchanged(snapshot, [], null, plan)).toBe(false);
+      expect(await repo.list()).toEqual([changed]);
+      expect(await repo.getPlan()).toBeNull();
+    }
+  });
 });

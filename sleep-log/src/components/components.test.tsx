@@ -91,15 +91,91 @@ describe('TodayPage', () => {
     expect(actions.start).toHaveBeenCalledWith('nap');
   });
 
-  it('saves an optional night reflection without editing the original interval', async () => {
+  it('saves a quick morning reflection without inventing an exact sleep onset', async () => {
     const actions = makeActions();
     render(<TodayPage model={completedModel} actions={actions} />);
-    fireEvent.change(screen.getByLabelText('开始记录后大约多久睡着（分钟）'), { target: { value: '30' } });
+    expect(screen.getByText('补记本次睡眠')).toBeVisible();
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    expect(screen.queryByRole('spinbutton')).not.toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText('大约多久睡着'), { target: { value: '15_to_30' } });
+    fireEvent.change(screen.getByLabelText('夜里醒来情况'), { target: { value: 'one_or_two' } });
     fireEvent.change(screen.getByLabelText('是否被闹钟叫醒'), { target: { value: 'false' } });
     fireEvent.change(screen.getByLabelText('醒后精神'), { target: { value: '4' } });
     fireEvent.click(screen.getByRole('button', { name: '保存补记' }));
     await waitFor(() => expect(actions.saveReflection).toHaveBeenCalledWith('segment-1', {
-      sleepOnsetAt: '2026-09-02T22:30:00.000Z', alarmUsed: false, wakeEnergy: 4, daytimeEnergy: null,
+      sleepOnsetAt: null, sleepOnsetBand: '15_to_30', nightAwakeningBand: 'one_or_two',
+      alarmUsed: false, wakeEnergy: 4, daytimeEnergy: null,
+    }));
+  });
+
+  it('distinguishes an explicit unknown answer from an unset optional answer', async () => {
+    const actions = makeActions();
+    render(<TodayPage model={completedModel} actions={actions} />);
+    fireEvent.change(screen.getByLabelText('大约多久睡着'), { target: { value: 'unknown' } });
+    fireEvent.click(screen.getByRole('button', { name: '保存补记' }));
+    await waitFor(() => expect(actions.saveReflection).toHaveBeenCalledWith('segment-1', {
+      sleepOnsetAt: null, sleepOnsetBand: 'unknown', alarmUsed: null, wakeEnergy: null, daytimeEnergy: null,
+    }));
+    expect((actions.saveReflection as ReturnType<typeof vi.fn>).mock.calls[0][1]).not.toHaveProperty('nightAwakeningBand');
+  });
+
+  it('preserves legacy exact onset and all prior answers across repeated edits', async () => {
+    const actions = makeActions();
+    const previous = {
+      sleepOnsetAt: '2026-09-02T22:30:00.000Z', sleepOnsetBand: '30_to_60' as const, nightAwakeningBand: 'one_or_two' as const,
+      alarmUsed: true, wakeEnergy: 2, daytimeEnergy: 3,
+    };
+    const segment = makeSegment({ reflection: previous });
+    const model: TodayModel = { ...completedModel, segment, groupSegments: [segment] };
+    const { rerender } = render(<TodayPage model={model} actions={actions} />);
+    fireEvent.click(screen.getByText('补记本次睡眠'));
+    expect(screen.getByLabelText('大约多久睡着')).toHaveValue('30_to_60');
+    expect(screen.getByLabelText('夜里醒来情况')).toHaveValue('one_or_two');
+    fireEvent.change(screen.getByLabelText('醒后精神'), { target: { value: '4' } });
+    fireEvent.click(screen.getByRole('button', { name: '保存补记' }));
+    await waitFor(() => expect(actions.saveReflection).toHaveBeenCalledWith('segment-1', {
+      ...previous, wakeEnergy: 4,
+    }));
+
+    const edited = makeSegment({ reflection: { ...previous, wakeEnergy: 4 } });
+    rerender(<TodayPage model={{ ...completedModel, segment: edited, groupSegments: [edited] }} actions={actions} />);
+    fireEvent.change(screen.getByLabelText('夜里醒来情况'), { target: { value: 'unknown' } });
+    fireEvent.click(screen.getByRole('button', { name: '保存补记' }));
+    await waitFor(() => expect(actions.saveReflection).toHaveBeenLastCalledWith('segment-1', {
+      ...previous, wakeEnergy: 4, nightAwakeningBand: 'unknown',
+    }));
+  });
+
+  it('does not prefill a legacy onset category or overwrite the old exact time', async () => {
+    const actions = makeActions();
+    const legacy = makeSegment({ reflection: {
+      sleepOnsetAt: '2026-09-02T22:30:00.000Z', alarmUsed: false, wakeEnergy: 3, daytimeEnergy: null,
+    } });
+    render(<TodayPage model={{ ...completedModel, segment: legacy, groupSegments: [legacy] }} actions={actions} />);
+    fireEvent.click(screen.getByText('补记本次睡眠'));
+    expect(screen.getByLabelText('大约多久睡着')).toHaveValue('');
+    fireEvent.change(screen.getByLabelText('白天精神（可以稍后补填）'), { target: { value: '5' } });
+    fireEvent.click(screen.getByRole('button', { name: '保存补记' }));
+    await waitFor(() => expect(actions.saveReflection).toHaveBeenCalledWith('segment-1', {
+      ...legacy.reflection, daytimeEnergy: 5,
+    }));
+  });
+
+  it('allows clearing a category without clearing legacy onset or other answers', async () => {
+    const actions = makeActions();
+    const previous = {
+      sleepOnsetAt: '2026-09-02T22:30:00.000Z', sleepOnsetBand: 'under_15' as const,
+      nightAwakeningBand: 'one_or_two' as const, alarmUsed: true, wakeEnergy: 3, daytimeEnergy: 4,
+    };
+    const segment = makeSegment({ reflection: previous });
+    render(<TodayPage model={{ ...completedModel, segment, groupSegments: [segment] }} actions={actions} />);
+    fireEvent.click(screen.getByText('补记本次睡眠'));
+    fireEvent.change(screen.getByLabelText('大约多久睡着'), { target: { value: '' } });
+    fireEvent.change(screen.getByLabelText('夜里醒来情况'), { target: { value: 'unknown' } });
+    fireEvent.click(screen.getByRole('button', { name: '保存补记' }));
+    await waitFor(() => expect(actions.saveReflection).toHaveBeenCalledWith('segment-1', {
+      sleepOnsetAt: previous.sleepOnsetAt, nightAwakeningBand: 'unknown',
+      alarmUsed: true, wakeEnergy: 3, daytimeEnergy: 4,
     }));
   });
 
@@ -177,6 +253,7 @@ describe('TodayPage', () => {
       />
     );
     expect(screen.queryByRole('button', { name: '再睡一段' })).not.toBeInTheDocument();
+    expect(screen.queryByText('补记本次睡眠')).not.toBeInTheDocument();
   });
 
   it('offers extend-wake and resume-active after undo window expires and confirms them', () => {
@@ -627,7 +704,7 @@ describe('SettingsPage', () => {
     });
     const incoming = {
       ...current,
-      reflection: { sleepOnsetAt: '2026-09-02T23:00:00.000Z', alarmUsed: false, wakeEnergy: 4, daytimeEnergy: 3 },
+      reflection: { sleepOnsetAt: '2026-09-02T23:00:00.000Z', alarmUsed: false, wakeEnergy: 4, daytimeEnergy: 3, sleepOnsetBand: 'over_60' as const, nightAwakeningBand: 'multiple_or_long' as const },
     };
     const file = new File([createBackup([incoming])], 'reflection-conflict.json', { type: 'application/json' });
     render(<SettingsPage model={{ ...settingsModel, segments: [current] }} timezone="Asia/Shanghai" actions={makeSettingsActions()} />);
@@ -638,6 +715,7 @@ describe('SettingsPage', () => {
     const conflict = screen.getByText(/记录 reflecti/).closest('.conflict-item')!;
     expect(conflict).toHaveTextContent('当前：夜间睡眠，06:00 — 14:30；补记：估计入睡 06:30，闹钟 是，醒后精神 2/5，白天精神 未记录');
     expect(conflict).toHaveTextContent('备份：夜间睡眠，06:00 — 14:30；补记：估计入睡 07:00，闹钟 否，醒后精神 4/5，白天精神 3/5');
+    expect(conflict).toHaveTextContent('入睡区间 超过 1 小时，夜间醒来 多次或醒了很久');
   });
 
   it('shows the stale-preview restore error without discarding the preview', async () => {

@@ -25,6 +25,56 @@ describe('versioned sleep backups', () => {
     expect(toCsv([reflected])).toContain('白天精神');
   });
 
+  it('round-trips optional bands and absent onset in both v1 and v2 without migration', () => {
+    const reflection = { alarmUsed: false, wakeEnergy: 4, daytimeEnergy: 3,
+      sleepOnsetBand: 'under_15' as const, nightAwakeningBand: 'none' as const };
+    const segment = { ...completedNight, reflection };
+    for (const version of [1, 2]) {
+      const envelope = version === 1
+        ? { app: '眠记', version, exportedAt: completedNight.updatedAt, segments: [segment] }
+        : JSON.parse(createBackup([segment]));
+      expect(parseBackup(JSON.stringify(envelope)).segments).toEqual([segment]);
+    }
+    expect(parseBackup(createBackup([{ ...completedNight, reflection: { sleepOnsetAt: '2026-09-02T15:00:00.000Z', ...reflection } }])).segments[0].reflection?.sleepOnsetAt).toBe('2026-09-02T15:00:00.000Z');
+  });
+
+  it('strictly validates band values and unknown reflection keys', () => {
+    const base = { alarmUsed: null, wakeEnergy: null, daytimeEnergy: null };
+    for (const reflection of [
+      { ...base, sleepOnsetBand: 'bad' }, { ...base, nightAwakeningBand: null },
+      { ...base, sleepOnsetBand: 15 }, { ...base, extra: true },
+    ]) {
+      expect(() => parseBackup(createBackup([{ ...completedNight, reflection: reflection as unknown as SleepSegment['reflection'] }]))).toThrow('备份文件格式不正确');
+    }
+    expect(parseBackup(createBackup([{ ...completedNight, reflection: { ...base, sleepOnsetBand: 'unknown', nightAwakeningBand: 'unknown' } }])).segments[0].reflection).toMatchObject({ sleepOnsetBand: 'unknown', nightAwakeningBand: 'unknown' });
+  });
+
+  it('distinguishes absent and present optional fields for conflicts and duplicate fingerprints', () => {
+    const base = { ...completedNight, reflection: { alarmUsed: null, wakeEnergy: null, daytimeEnergy: null } };
+    const withBand = { ...base, reflection: { ...base.reflection, sleepOnsetBand: 'unknown' as const } };
+    expect(mergeBackup([base], [withBand]).conflicts).toEqual([{ current: base, incoming: withBand }]);
+    expect(mergeBackup([base], [{ ...withBand, id: 'another' }]).merged).toHaveLength(2);
+    const awakening = { ...base, reflection: { ...base.reflection, nightAwakeningBand: 'none' as const } };
+    expect(mergeBackup([base], [awakening]).conflicts).toHaveLength(1);
+    expect(mergeBackup([base], [{ ...awakening, id: 'awakening' }]).merged).toHaveLength(2);
+    expect(mergeBackup([withBand], [{ ...withBand, id: 'duplicate', reflection: {
+      sleepOnsetBand: 'unknown' as const, daytimeEnergy: null, wakeEnergy: null, alarmUsed: null,
+    } }]).merged).toEqual([withBand]);
+  });
+
+  it('appends four band columns with codes and labels while retaining BOM and CRLF', () => {
+    const csv = toCsv([{ ...completedNight, reflection: {
+      alarmUsed: null, wakeEnergy: null, daytimeEnergy: null,
+      sleepOnsetBand: '15_to_30', nightAwakeningBand: 'multiple_or_long',
+    } }, completedNight]);
+    const [header, first, second] = csv.slice(1).trimEnd().split('\r\n');
+    expect(csv.charCodeAt(0)).toBe(0xfeff);
+    expect(header).toMatch(/"入睡区间编码","入睡区间","夜间醒来编码","夜间醒来情况"$/);
+    expect(first).toMatch(/"15_to_30","15–30 分钟","multiple_or_long","多次或醒来较久"$/);
+    expect(second).toMatch(/"","","",""$/);
+    expect(first.split(',')).toHaveLength(header.split(',').length);
+  });
+
   it('round-trips a paused plan in v2 but rejects malformed plan data', () => {
     const plan: SleepPlan = { startedOn: '2026-09-30', baselineWakeMinutes: 620, targetWakeMinutes: 450, sleepOpportunityMinutes: 570, stepMinutes: 25, stepDays: 3, pausedOn: '2026-10-02', pausedDays: 0 };
     const text = createBackup([completedNight], '2026-10-03T00:00:00.000Z', plan);

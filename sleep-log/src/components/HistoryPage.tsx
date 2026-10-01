@@ -5,6 +5,7 @@ import { buildReflectionComparison } from '../domain/stats';
 import type { SleepReflection } from '../domain/sleep';
 import { SleepReflectionEditor } from './SleepReflectionEditor';
 import { sleepPlanForDate, type SleepPlan } from '../domain/sleep-plan';
+import { buildSleepInsights } from '../domain/sleep-insights';
 
 export interface HistoryActions {
   changeKind(id: string, kind: SleepKind): Promise<void>;
@@ -28,6 +29,10 @@ const formatTime = (value: string | null, timezone?: string) => {
   if (!value) return '未知时间';
   return new Intl.DateTimeFormat('zh-CN', { hour: '2-digit', minute: '2-digit', timeZone: timezone }).format(new Date(value));
 };
+
+const formatClockMinute = (minute: number) => `${String(Math.floor(minute / 60)).padStart(2, '0')}:${String(minute % 60).padStart(2, '0')}`;
+const onsetLabels: Record<string, string> = { under_15: '不到 15 分钟', '15_to_30': '约 15–30 分钟', '30_to_60': '约 30–60 分钟', over_60: '超过 1 小时', unknown: '记不清' };
+const awakeningLabels: Record<string, string> = { none: '没有', one_or_two: '一两次', multiple_or_long: '多次或醒了很久', unknown: '记不清' };
 
 function ConfirmDeleteDialog({
   title,
@@ -127,6 +132,7 @@ export function HistoryPage({ segments, today, timezone, actions, plan = null }:
     return Math.max(...stats.days.map((d) => d.totalMs), 8 * 3600 * 1000);
   }, [stats.days]);
   const comparison = useMemo(() => buildReflectionComparison(segments), [segments]);
+  const insights = useMemo(() => buildSleepInsights(segments, rangeDays, today, timezone), [segments, rangeDays, today, timezone]);
   const planToday = plan ? sleepPlanForDate(plan, today) : null;
   const formatClock = (minutes: number) => `${String(Math.floor(minutes / 60)).padStart(2, '0')}:${String(minutes % 60).padStart(2, '0')}`;
 
@@ -204,6 +210,21 @@ export function HistoryPage({ segments, today, timezone, actions, plan = null }:
               </div>
             </div>
           )}
+        </section>
+
+        <section className="stats-section" aria-label="睡眠趋势与提示">
+          <h2>睡眠趋势与提示</h2>
+          <p className="hint-text">{insights.startDate} 至 {insights.endDate} · {insights.nights.count} 晚有效记录，覆盖 {insights.nights.completedDays} 天；记录时长不是实际睡眠时长。这些提示不是医学诊断。</p>
+          <div className="stats-summary-grid">
+            <div className="stat-card"><span className="stat-label">夜间平均记录时长</span><strong className="stat-value">{insights.nights.averageDurationMinutes === null ? '未记录' : formatDuration(insights.nights.averageDurationMinutes * 60_000)}</strong></div>
+            <div className="stat-card"><span className="stat-label">午睡</span><strong className="stat-value">{insights.naps.count} 次 · {insights.naps.days} 天</strong><span>共 {formatDuration(insights.naps.totalMinutes * 60_000)}</span></div>
+            <div className="stat-card"><span className="stat-label">记录时间范围</span><span>开始记录 {insights.bedtimeRange ? `${formatClockMinute(insights.bedtimeRange.startMinute)}–${formatClockMinute(insights.bedtimeRange.endMinute)}（跨度 ${Math.round(insights.bedtimeRange.spanMinutes)} 分）` : '未记录'}</span><span>结束记录 {insights.wakeTimeRange ? `${formatClockMinute(insights.wakeTimeRange.startMinute)}–${formatClockMinute(insights.wakeTimeRange.endMinute)}（跨度 ${Math.round(insights.wakeTimeRange.spanMinutes)} 分）` : '未记录'}</span></div>
+          </div>
+          <p className="hint-text">入睡区间（已知 {insights.onset.sampleCount} 晚，未填 {insights.onset.missingCount} 晚）：{Object.entries(insights.onset.counts).map(([key, value]) => `${onsetLabels[key] ?? key} ${value}`).join(' · ') || '暂无'}</p>
+          <p className="hint-text">夜间醒来（已知 {insights.awakening.sampleCount} 晚，未填 {insights.awakening.missingCount} 晚）：{Object.entries(insights.awakening.counts).map(([key, value]) => `${awakeningLabels[key] ?? key} ${value}`).join(' · ') || '暂无'}</p>
+          <p className="hint-text">闹钟：是 {insights.alarm.yes} 晚、否 {insights.alarm.no} 晚、未填 {insights.alarm.missingCount} 晚；醒后精神 {insights.wakeEnergy.sampleCount} 条{insights.wakeEnergy.average === null ? '' : `，均分 ${insights.wakeEnergy.average.toFixed(1)}/5`}；白天精神 {insights.daytimeEnergy.sampleCount} 条{insights.daytimeEnergy.average === null ? '' : `，均分 ${insights.daytimeEnergy.average.toFixed(1)}/5`}。</p>
+          <p className="hint-text">{insights.completeness.nightsWithReflection} 晚有补记、{insights.completeness.nightsWithoutReflection} 晚无补记；{insights.completeness.excludedGroups} 组不准确记录未纳入分析。</p>
+          <ul aria-label="证据式提示">{insights.messages.map((message, index) => <li key={`${index}-${message.text}`}>{message.text}（样本 {message.sampleCount}）</li>)}</ul>
         </section>
 
         <section className="stats-section" aria-label="记录时长与精神对照">

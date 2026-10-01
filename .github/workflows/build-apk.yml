@@ -119,6 +119,6 @@ jobs:
         with:
           files: dist-apk/*.apk
           name: 眠记 (Mianji) ${{ github.ref_name }}
-          body_path: sleep-log/docs/releases/v1.0.9.md
+          body_path: sleep-log/docs/releases/v1.1.0.md
           draft: false
           prerelease: false

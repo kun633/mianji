@@ -338,7 +338,8 @@ export function FinishedView({ model, actions }: { model: Extract<TodayModel, { 
       </div>
       {model.segment.kind === 'night' && model.segment.status === 'completed' && (
         <details className="reflection-card" open={!model.segment.reflection}>
-          <summary>{model.segment.reflection ? '查看或修改睡后补记' : '补记醒后感受'}</summary>
+          <summary><strong>补记本次睡眠</strong> · {model.segment.reflection ? '查看或修改' : '可选，醒后随手记'}</summary>
+          <p className="hint-text">记录结束日期：{new Intl.DateTimeFormat('sv-SE', { timeZone: model.segment.endTimezone ?? model.segment.startTimezone }).format(new Date(model.segment.endAt!))}</p>
           <SleepReflectionEditor key={model.segment.id} segment={model.segment} onSave={actions.saveReflection} />
         </details>
       )}

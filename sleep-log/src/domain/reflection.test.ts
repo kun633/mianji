@@ -21,6 +21,27 @@ describe('sleep reflection', () => {
     expect(() => saveReflection(segment, { ...segment.reflection!, sleepOnsetAt: '2026-09-02T13:00:00.000Z' }, '2026-09-03T09:00:00.000Z')).toThrow();
   });
 
+  it('accepts valid bands without inventing an onset and retains legacy onset when omitted', () => {
+    const segment = done('bands', 9, 4);
+    const bands = { alarmUsed: false, wakeEnergy: 4, daytimeEnergy: 3,
+      sleepOnsetBand: '15_to_30' as const, nightAwakeningBand: 'one_or_two' as const };
+    const fresh = saveReflection(segment, bands, '2026-09-03T09:00:00.000Z');
+    expect(fresh.reflection).toEqual(bands);
+    expect(fresh.reflection).not.toHaveProperty('sleepOnsetAt');
+    const unreviewed = { ...segment, reflection: undefined };
+    expect(saveReflection(unreviewed, { ...bands, sleepOnsetAt: null }, '2026-09-03T09:00:00.000Z').reflection).not.toHaveProperty('sleepOnsetAt');
+    const legacy = saveReflection({ ...segment, reflection: { ...segment.reflection!, sleepOnsetAt: '2026-09-02T14:30:00.000Z' } }, bands, '2026-09-03T09:00:00.000Z');
+    expect(legacy.reflection?.sleepOnsetAt).toBe('2026-09-02T14:30:00.000Z');
+  });
+
+  it('rejects invalid band values without changing the source', () => {
+    const segment = done('invalid-bands', 9, 4);
+    for (const field of ['sleepOnsetBand', 'nightAwakeningBand'] as const) {
+      expect(() => saveReflection(segment, { ...segment.reflection!, [field]: 'invalid' }, '2026-09-03T09:00:00.000Z')).toThrow();
+    }
+    expect(segment.reflection).not.toHaveProperty('sleepOnsetBand');
+  });
+
   it('compares only reviewed completed nights and labels samples', () => {
     const result = buildReflectionComparison([done('eight', 8, 2), done('nine', 9, 4), done('ten', 10, 5)]);
     expect(result.map((bucket) => [bucket.label, bucket.count, bucket.averageWakeEnergy])).toEqual([

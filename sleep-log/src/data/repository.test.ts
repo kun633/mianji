@@ -81,4 +81,24 @@ describe('IndexedDbSleepRepository', () => {
     expect(replaced).toBe(false);
     expect((await repo.list()).map((segment) => segment.id)).toEqual(['previewed', 'arrived-later']);
   });
+
+  it('rejects stale previews when either optional reflection band changes', async () => {
+    const repo = new IndexedDbSleepRepository();
+    const night = { ...createSegment({ id: 'reflected', kind: 'night', groupId: null, now: '2026-09-02T14:00:00.000Z', timezone: 'Asia/Shanghai' }),
+      endAt: '2026-09-02T22:00:00.000Z', status: 'completed' as const,
+      reflection: { alarmUsed: null, wakeEnergy: null, daytimeEnergy: null } };
+    const plan = { startedOn: '2026-09-03', baselineWakeMinutes: 620, targetWakeMinutes: 450 as const, sleepOpportunityMinutes: 570 as const, stepMinutes: 25 as const, stepDays: 3 as const, pausedOn: null, pausedDays: 0 };
+    await repo.save(night);
+    for (const changed of [
+      { ...night, reflection: { ...night.reflection, sleepOnsetBand: 'unknown' as const } },
+      { ...night, reflection: { ...night.reflection, nightAwakeningBand: 'one_or_two' as const } },
+    ]) {
+      const snapshot = await repo.list();
+      await repo.save(changed);
+      expect(await repo.replaceAllIfUnchanged(snapshot, [])).toBe(false);
+      expect(await repo.replaceAllWithPlanIfUnchanged(snapshot, [], null, plan)).toBe(false);
+      expect(await repo.list()).toEqual([changed]);
+      expect(await repo.getPlan()).toBeNull();
+    }
+  });
 });

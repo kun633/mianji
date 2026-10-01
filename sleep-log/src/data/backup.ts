@@ -1,4 +1,4 @@
-import type { SleepSegment, SleepKind, SleepStatus } from '../domain/sleep';
+import { nightAwakeningBands, sleepOnsetBands, type SleepSegment, type SleepKind, type SleepStatus } from '../domain/sleep';
 import { isSleepPlan, type SleepPlan } from '../domain/sleep-plan';
 
 export type SleepBackup =
@@ -16,7 +16,8 @@ const statuses: SleepStatus[] = ['active', 'completed', 'uncertain', 'invalid'];
 const isString = (value: unknown): value is string => typeof value === 'string';
 const isNullableString = (value: unknown): value is string | null => value === null || isString(value);
 const segmentFields = ['id', 'kind', 'groupId', 'startAt', 'startTimezone', 'endAt', 'endTimezone', 'status', 'uncertainReason', 'createdAt', 'updatedAt', 'finishedAt', 'schemaVersion'] as const;
-const reflectionFields = ['sleepOnsetAt', 'alarmUsed', 'wakeEnergy', 'daytimeEnergy'];
+const reflectionFields = ['sleepOnsetAt', 'alarmUsed', 'wakeEnergy', 'daytimeEnergy', 'sleepOnsetBand', 'nightAwakeningBand'] as const;
+const requiredReflectionFields = ['alarmUsed', 'wakeEnergy', 'daytimeEnergy'] as const;
 const isoTime = (value: unknown): value is string => {
   if (!isString(value)) return false;
   const match = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.\d{3})?(Z|[+-]\d{2}:\d{2})$/.exec(value);
@@ -43,14 +44,20 @@ function isSleepSegment(value: unknown): value is SleepSegment {
   const item = value as Record<string, unknown>;
   const reflection = item.reflection;
   const validReflection = reflection === undefined || (reflection !== null && typeof reflection === 'object' &&
-    sameKeys(reflection as Record<string, unknown>, reflectionFields) &&
-    ((reflection as Record<string, unknown>).sleepOnsetAt === null || isoTime((reflection as Record<string, unknown>).sleepOnsetAt)) &&
+    requiredReflectionFields.every((field) => Object.prototype.hasOwnProperty.call(reflection, field)) &&
+    Object.keys(reflection).every((field) => (reflectionFields as readonly string[]).includes(field)) &&
+    (!Object.prototype.hasOwnProperty.call(reflection, 'sleepOnsetAt') ||
+      (reflection as Record<string, unknown>).sleepOnsetAt === null || isoTime((reflection as Record<string, unknown>).sleepOnsetAt)) &&
+    (!Object.prototype.hasOwnProperty.call(reflection, 'sleepOnsetBand') ||
+      sleepOnsetBands.includes((reflection as Record<string, unknown>).sleepOnsetBand as typeof sleepOnsetBands[number])) &&
+    (!Object.prototype.hasOwnProperty.call(reflection, 'nightAwakeningBand') ||
+      nightAwakeningBands.includes((reflection as Record<string, unknown>).nightAwakeningBand as typeof nightAwakeningBands[number])) &&
     [null, true, false].includes((reflection as Record<string, unknown>).alarmUsed as null | boolean) &&
     ['wakeEnergy', 'daytimeEnergy'].every((key) => (reflection as Record<string, unknown>)[key] === null ||
       (Number.isInteger((reflection as Record<string, unknown>)[key]) && Number((reflection as Record<string, unknown>)[key]) >= 1 && Number((reflection as Record<string, unknown>)[key]) <= 5)));
   return sameKeys(item, reflection === undefined ? segmentFields : [...segmentFields, 'reflection']) && validReflection &&
     (reflection === undefined || (item.kind === 'night' && item.status === 'completed' && item.endAt !== null &&
-      ((reflection as Record<string, unknown>).sleepOnsetAt === null ||
+      ((reflection as Record<string, unknown>).sleepOnsetAt == null ||
         (Date.parse((reflection as Record<string, unknown>).sleepOnsetAt as string) >= Date.parse(item.startAt as string) &&
          Date.parse((reflection as Record<string, unknown>).sleepOnsetAt as string) <= Date.parse(item.endAt as string))))) &&
     isString(item.id) && kinds.includes(item.kind as SleepKind) && isNullableString(item.groupId)
@@ -82,7 +89,8 @@ export function parseBackup(text: string): SleepBackup {
 
 const fieldsWithoutId = [...segmentFields.filter((field) => field !== 'id'), 'reflection'];
 const stableReflection = (reflection: SleepSegment['reflection']) => reflection
-  ? reflectionFields.map((field) => reflection[field as keyof typeof reflection] ?? null)
+  ? reflectionFields.map((field) => Object.prototype.hasOwnProperty.call(reflection, field)
+    ? [true, reflection[field]] : [false])
   : null;
 const stableSegmentValue = (segment: SleepSegment, fields: readonly string[]) => fields
   .map((field) => [field, field === 'reflection' ? stableReflection(segment.reflection) : segment[field as keyof SleepSegment]] as const);
@@ -140,13 +148,19 @@ function csvField(value: string | number | null): string {
 }
 
 export function toCsv(segments: SleepSegment[]): string {
-  const header = ['记录编号', '睡眠类型', '开始时间', '结束时间', '时长（分钟）', '分组编号', '状态', '不准确原因', '估计入睡时间', '使用闹钟', '醒后精神', '白天精神'];
+  const header = ['记录编号', '睡眠类型', '开始时间', '结束时间', '时长（分钟）', '分组编号', '状态', '不准确原因', '估计入睡时间', '使用闹钟', '醒后精神', '白天精神', '入睡区间编码', '入睡区间', '夜间醒来编码', '夜间醒来情况'];
+  const onsetLabels = { under_15: '15 分钟内', '15_to_30': '15–30 分钟', '30_to_60': '30–60 分钟', over_60: '超过 1 小时', unknown: '不确定' };
+  const awakeningLabels = { none: '没有', one_or_two: '1–2 次', multiple_or_long: '多次或醒来较久', unknown: '不确定' };
   const rows = segments.map((segment) => [
     segment.id, segment.kind === 'night' ? '夜间睡眠' : '午睡', segment.startAt, segment.endAt,
     segment.endAt ? Math.round((Date.parse(segment.endAt) - Date.parse(segment.startAt)) / 60_000) : '',
     segment.groupId, segment.status, segment.uncertainReason, segment.reflection?.sleepOnsetAt ?? null,
     segment.reflection?.alarmUsed === null || segment.reflection?.alarmUsed === undefined ? '' : segment.reflection.alarmUsed ? '是' : '否',
     segment.reflection?.wakeEnergy ?? null, segment.reflection?.daytimeEnergy ?? null,
+    segment.reflection?.sleepOnsetBand ?? null,
+    segment.reflection?.sleepOnsetBand ? onsetLabels[segment.reflection.sleepOnsetBand] : null,
+    segment.reflection?.nightAwakeningBand ?? null,
+    segment.reflection?.nightAwakeningBand ? awakeningLabels[segment.reflection.nightAwakeningBand] : null,
   ].map((value) => csvField(value)).join(','));
   return `\ufeff${header.map((value) => csvField(value)).join(',')}\r\n${rows.join('\r\n')}\r\n`;
 }

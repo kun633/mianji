@@ -1,11 +1,18 @@
 export type SleepKind = 'night' | 'nap';
 export type SleepStatus = 'active' | 'completed' | 'uncertain' | 'invalid';
+export type SleepOnsetBand = 'under_15' | '15_to_30' | '30_to_60' | 'over_60' | 'unknown';
+export type NightAwakeningBand = 'none' | 'one_or_two' | 'multiple_or_long' | 'unknown';
+
+export const sleepOnsetBands: readonly SleepOnsetBand[] = ['under_15', '15_to_30', '30_to_60', 'over_60', 'unknown'];
+export const nightAwakeningBands: readonly NightAwakeningBand[] = ['none', 'one_or_two', 'multiple_or_long', 'unknown'];
 
 export interface SleepReflection {
-  sleepOnsetAt: string | null;
+  sleepOnsetAt?: string | null;
   alarmUsed: boolean | null;
   wakeEnergy: number | null;
   daytimeEnergy: number | null;
+  sleepOnsetBand?: SleepOnsetBand;
+  nightAwakeningBand?: NightAwakeningBand;
 }
 
 export interface SleepSegment {
@@ -31,16 +38,25 @@ export function saveReflection(segment: SleepSegment, reflection: SleepReflectio
   }
   const validEnergy = (value: number | null) => value === null || (Number.isInteger(value) && value >= 1 && value <= 5);
   if (!validEnergy(reflection.wakeEnergy) || !validEnergy(reflection.daytimeEnergy) ||
-      (reflection.alarmUsed !== null && typeof reflection.alarmUsed !== 'boolean')) {
+      (reflection.alarmUsed !== null && typeof reflection.alarmUsed !== 'boolean') ||
+      (reflection.sleepOnsetBand !== undefined && !sleepOnsetBands.includes(reflection.sleepOnsetBand)) ||
+      (reflection.nightAwakeningBand !== undefined && !nightAwakeningBands.includes(reflection.nightAwakeningBand))) {
     throw new Error('补记评分无效');
   }
-  if (reflection.sleepOnsetAt !== null) {
-    const onset = Date.parse(reflection.sleepOnsetAt);
+  const sleepOnsetAt = reflection.sleepOnsetAt === undefined ? segment.reflection?.sleepOnsetAt : reflection.sleepOnsetAt;
+  if (sleepOnsetAt !== null && sleepOnsetAt !== undefined) {
+    const onset = Date.parse(sleepOnsetAt);
     if (!Number.isFinite(onset) || onset < Date.parse(segment.startAt) || onset > Date.parse(segment.endAt)) {
       throw new Error('估计入睡时间应在开始与起床时间之间');
     }
   }
-  return { ...segment, reflection: { ...reflection }, updatedAt: now };
+  const savedReflection = { ...reflection };
+  if (reflection.sleepOnsetAt === undefined && segment.reflection && Object.prototype.hasOwnProperty.call(segment.reflection, 'sleepOnsetAt')) {
+    savedReflection.sleepOnsetAt = segment.reflection.sleepOnsetAt;
+  } else if (reflection.sleepOnsetAt === null && !Object.prototype.hasOwnProperty.call(segment.reflection ?? {}, 'sleepOnsetAt')) {
+    delete savedReflection.sleepOnsetAt;
+  }
+  return { ...segment, reflection: savedReflection, updatedAt: now };
 }
 
 export function createSegment(input: { id: string; kind: SleepKind; groupId: string | null; now: string; timezone: string }): SleepSegment {
