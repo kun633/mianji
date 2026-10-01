@@ -42,6 +42,7 @@ test.describe('Sleep Log PWA App Workflows', () => {
     await page.getByRole('button', { name: '开始渐进计划' }).click();
     await expect(page.getByRole('region', { name: '渐进作息计划' })).toContainText('建议起床 09:00');
     await page.getByRole('button', { name: '暂停计划' }).click();
+    await expect(page.getByRole('button', { name: '继续计划' })).toBeVisible();
     await page.reload();
     await page.getByRole('button', { name: '历史' }).click();
     await expect(page.getByRole('button', { name: '继续计划' })).toBeVisible();
@@ -57,6 +58,7 @@ test.describe('Sleep Log PWA App Workflows', () => {
     await page.goto('/');
     await page.getByRole('button', { name: '开始睡觉' }).click();
     await page.getByRole('button', { name: '夜间睡眠' }).click();
+    await expect(page.getByRole('button', { name: '起床' })).toBeVisible();
     await page.reload();
     await expect(page.getByRole('button', { name: '起床' })).toBeVisible();
 
