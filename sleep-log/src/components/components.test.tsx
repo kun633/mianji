@@ -5,7 +5,9 @@ import { loadTodayModel } from '../App';
 import { TodayPage, type TodayActions, type TodayModel } from './TodayPage';
 import { HistoryPage, type HistoryActions } from './HistoryPage';
 import { SettingsPage, type SettingsActions, type SettingsModel } from './SettingsPage';
-import { createBackup } from '../data/backup';
+import { createBackup, parseBackup } from '../data/backup';
+import { readFileSync } from 'node:fs';
+import { URL } from 'node:url';
 import type { SleepSegment } from '../domain/sleep';
 
 const makeSegment = (overrides: Partial<SleepSegment> = {}): SleepSegment => ({
@@ -559,6 +561,28 @@ describe('HistoryPage', () => {
     expect(screen.getByText('22:00 — 06:00')).toBeInTheDocument();
   });
 
+  it('shows a legacy exact onset as preserved read-only time in its start timezone without inventing a band', async () => {
+    const actions = makeHistoryActions();
+    const legacy = makeSegment({
+      startAt: '2026-09-02T02:00:00.000Z', endAt: '2026-09-02T10:00:00.000Z',
+      finishedAt: '2026-09-02T10:00:00.000Z', startTimezone: 'America/New_York',
+      endTimezone: 'America/New_York',
+      reflection: { sleepOnsetAt: '2026-09-02T02:35:00.000Z', alarmUsed: null, wakeEnergy: null, daytimeEnergy: null },
+    });
+    render(<HistoryPage segments={[legacy]} today="2026-09-02" timezone="Asia/Shanghai" actions={actions} />);
+    fireEvent.click(screen.getByText('修改补记'));
+    const form = screen.getByRole('form', { name: '睡眠补记' });
+    expect(form).toHaveTextContent('22:35');
+    expect(form).toHaveTextContent('America/New_York');
+    expect(form).toHaveTextContent('保留');
+    expect(within(form).getByLabelText('大约多久睡着')).toHaveValue('');
+    expect(within(form).getByLabelText('旧估计入睡时间').tagName).toBe('P');
+    fireEvent.click(within(form).getByRole('button', { name: '保存补记' }));
+    await waitFor(() => expect(actions.saveReflection).toHaveBeenCalledWith(legacy.id, {
+      ...legacy.reflection,
+    }));
+  });
+
   it('keeps invalid records visible and out of night and day totals', () => {
     const actions = makeHistoryActions();
     const valid = makeSegment({ id: 'valid', groupId: 'mixed', startAt: '2026-09-02T14:00:00.000Z', endAt: '2026-09-02T16:00:00.000Z', finishedAt: '2026-09-02T16:00:00.000Z' });
@@ -636,6 +660,24 @@ describe('SettingsPage', () => {
     expect(screen.getByText(/不能防止主动清除网站数据/)).toBeInTheDocument();
     expect(screen.getByRole('button', { name: '请求防自动清理保护' })).toBeInTheDocument();
     expect(screen.queryByText(/永久存储/)).not.toBeInTheDocument();
+  });
+
+  it('distinguishes the importable exported JSON from illustrative schema examples', () => {
+    render(<SettingsPage model={settingsModel} timezone="Asia/Shanghai" actions={makeSettingsActions()} />);
+    const backup = screen.getByRole('region', { name: '数据备份与恢复' });
+    expect(backup).toHaveTextContent('导出完整备份');
+    expect(backup).toHaveTextContent('app');
+    expect(backup).toHaveTextContent('plan');
+    expect(backup).toHaveTextContent('示例');
+  });
+
+  it('keeps the documented JSON example importable and aligned with the current envelope', () => {
+    const doc = readFileSync(new URL('../../docs/PRIVACY_AND_BACKUP.md', import.meta.url), 'utf8');
+    const example = doc.match(/```json\s*([\s\S]*?)```/)?.[1];
+    expect(example).toBeDefined();
+    const parsed = parseBackup(example!);
+    expect(parsed).toMatchObject({ app: '眠记', version: 2, plan: null });
+    expect(parsed.segments).toHaveLength(1);
   });
 
   it('previews a restore before applying it', async () => {

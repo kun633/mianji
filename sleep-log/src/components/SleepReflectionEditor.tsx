@@ -1,6 +1,14 @@
 import { useState, type FormEvent } from 'react';
 import type { NightAwakeningBand, SleepOnsetBand, SleepReflection, SleepSegment } from '../domain/sleep';
 
+function formatLegacyOnset(value: string, timezone: string): string {
+  return new Intl.DateTimeFormat('zh-CN', {
+    dateStyle: 'medium',
+    timeStyle: 'short',
+    timeZone: timezone,
+  }).format(new Date(value));
+}
+
 export function SleepReflectionEditor({ segment, onSave }: { segment: SleepSegment; onSave: (id: string, value: SleepReflection) => Promise<void> }) {
   const previous = segment.reflection;
   const [onsetBand, setOnsetBand] = useState<SleepOnsetBand | ''>(previous?.sleepOnsetBand ?? '');
@@ -41,6 +49,11 @@ export function SleepReflectionEditor({ segment, onSave }: { segment: SleepSegme
   return (
     <form className="reflection-form" onSubmit={(event) => void submit(event)} aria-label="睡眠补记">
       <p className="hint-text">随手估计即可，可留空或选“不确定”；原始记录时间不会改变。</p>
+      {previous?.sleepOnsetAt && !previous.sleepOnsetBand && (
+        <p className="hint-text" aria-label="旧估计入睡时间">
+          旧记录的估计入睡时间：{formatLegacyOnset(previous.sleepOnsetAt, segment.startTimezone)}（{segment.startTimezone}）；该估计已保留，仅供查看，不会自动换算为区间。
+        </p>
+      )}
       <label>大约多久睡着
         <select value={onsetBand} onChange={(event) => setOnsetBand(event.target.value as SleepOnsetBand | '')}>
           <option value="">未记录</option>

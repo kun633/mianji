@@ -23,13 +23,13 @@ describe('buildSleepInsights', () => {
       rangeDays: 7, startDate: '2026-09-25', endDate: '2026-10-01',
       nights: { count: 0, completedDays: 0, nightly: [] },
       naps: { count: 0, days: 0, totalMinutes: 0 },
-      onset: { sampleCount: 0, missingCount: 0 },
-      awakening: { sampleCount: 0, missingCount: 0 },
+      onset: { sampleCount: 0, unknownCount: 0, missingCount: 0 },
+      awakening: { sampleCount: 0, unknownCount: 0, missingCount: 0 },
       alarm: { yes: 0, no: 0, missingCount: 0 },
       wakeEnergy: { sampleCount: 0, average: null },
       daytimeEnergy: { sampleCount: 0, average: null },
       bedtimeRange: null, wakeTimeRange: null,
-      completeness: { excludedSegments: 0, excludedGroups: 0 },
+      completeness: { excludedSegments: 0, excludedGroups: 0, undatedGroups: 0, undatedSegments: 0 },
     });
     expect(result.messages).toEqual([{ text: expect.stringContaining('不足'), sampleCount: 0 }]);
   });
@@ -69,9 +69,20 @@ describe('buildSleepInsights', () => {
     expect(result.completeness).toMatchObject({ excludedGroups: 2, excludedSegments: 2 });
   });
 
-  it('keeps a historical night on its recorded local wake date when viewing from another timezone', () => {
-    const historical = segment('travel', '2026-09-24T15:00:00Z', '2026-09-24T17:00:00Z');
-    expect(buildSleepInsights([historical], 7, '2026-10-01', 'America/Los_Angeles').nights.count).toBe(1);
+  it('uses the analysis timezone for both window inclusion and clock minutes near a travel boundary', () => {
+    const boundary = segment('boundary', '2026-09-24T14:00:00Z', '2026-09-24T16:30:00Z');
+    const travel = segment('travel', '2026-09-30T14:00:00Z', '2026-09-30T16:30:00Z', {
+      startTimezone: 'America/Los_Angeles', endTimezone: 'Asia/Tokyo',
+    });
+    const shanghai = buildSleepInsights([boundary, travel], 7, '2026-10-01', zone);
+    expect(shanghai.nights.nightly).toEqual([
+      { groupId: 'boundary', date: '2026-09-25', durationMinutes: 150, bedtimeMinute: 22 * 60, wakeMinute: 30 },
+      { groupId: 'travel', date: '2026-10-01', durationMinutes: 150, bedtimeMinute: 22 * 60, wakeMinute: 30 },
+    ]);
+    const losAngeles = buildSleepInsights([boundary, travel], 7, '2026-10-01', 'America/Los_Angeles');
+    expect(losAngeles.nights.nightly).toEqual([
+      { groupId: 'travel', date: '2026-09-30', durationMinutes: 150, bedtimeMinute: 7 * 60, wakeMinute: 9 * 60 + 30 },
+    ]);
   });
 
   it('does not call an unfinished continuation an inaccurate record', () => {
@@ -80,6 +91,45 @@ describe('buildSleepInsights', () => {
     const result = buildSleepInsights([finished, active], 7, '2026-10-01', zone);
     expect(result.nights.count).toBe(0);
     expect(result.completeness.excludedGroups).toBe(0);
+  });
+
+  it('counts malformed timestamp groups in range as exclusions when a date can be inferred', () => {
+    const badEnd = segment('bad-end', '2026-09-30T14:00:00Z', 'not-a-date');
+    const badStart = segment('bad-start', 'not-a-date', '2026-10-01T00:00:00Z');
+    const bothBad = segment('both-bad', 'not-a-date', 'also-not-a-date');
+    const old = segment('old', '2026-09-20T14:00:00Z', 'bad');
+    const validPart = segment('part', '2026-09-30T14:00:00Z', '2026-09-30T16:00:00Z', { groupId: 'mixed' });
+    const malformedPart = segment('bad-part', 'bad', '2026-10-01T00:00:00Z', { groupId: 'mixed' });
+    const result = buildSleepInsights([badEnd, badStart, bothBad, old, validPart, malformedPart], 7, '2026-10-01', zone);
+    expect(result.nights.count).toBe(0);
+    expect(result.completeness).toMatchObject({ excludedGroups: 3, excludedSegments: 3, undatedGroups: 1, undatedSegments: 1 });
+  });
+
+  it('counts only answered reflections, with unknown distinct from missing', () => {
+    const empty = withBands(segment('empty', '2026-09-28T15:00:00Z', '2026-09-28T23:00:00Z'), {});
+    const unknown = withBands(segment('unknown', '2026-09-29T15:00:00Z', '2026-09-29T23:00:00Z'), {
+      sleepOnsetBand: 'unknown', nightAwakeningBand: 'unknown',
+    });
+    const absent = segment('absent', '2026-09-30T15:00:00Z', '2026-09-30T23:00:00Z');
+    const result = buildSleepInsights([empty, unknown, absent], 7, '2026-10-01', zone);
+    expect(result.completeness).toMatchObject({ nightsWithoutReflection: 2, nightsWithReflection: 1 });
+    expect(result.onset).toMatchObject({ counts: { unknown: 1 }, sampleCount: 0, unknownCount: 1, missingCount: 2 });
+    expect(result.awakening).toMatchObject({ counts: { unknown: 1 }, sampleCount: 0, unknownCount: 1, missingCount: 2 });
+  });
+
+  it('retains the denominator without calling a single co-occurrence multiple records', () => {
+    const records = Array.from({ length: 3 }, (_, i) => {
+      const start = new Date(Date.UTC(2026, 8, 27 + i, 15));
+      const entry = withBands(segment(`paired${i}`, start.toISOString(), new Date(start.getTime() + 8 * 3600000).toISOString()), {
+        sleepOnsetBand: i === 0 ? 'over_60' : 'under_15',
+      });
+      entry.reflection = { ...entry.reflection!, wakeEnergy: i === 0 ? 2 : 4 };
+      return entry;
+    });
+    const result = buildSleepInsights(records, 7, '2026-10-01', zone);
+    const message = result.messages.find((item) => item.text.includes('同时出现'));
+    expect(message).toMatchObject({ sampleCount: 3, text: expect.stringContaining('1/3晚') });
+    expect(message?.text).not.toContain('多次记录');
   });
 
   it('counts each reflection category once per night, ignores missing/invalid scores, and computes averages', () => {

@@ -462,6 +462,7 @@ export function SettingsPage({ model, timezone, actions }: SettingsPageProps) {
               </p>
             )}
           </div>
+          <p className="hint-text">JSON 备份包含 <code>app</code>、版本、导出时间、睡眠记录和计划（当前导出为 <code>version: 2</code>，含 <code>plan</code>）。文档中的 JSON 仅为格式示例，不是你的备份；恢复时请导入应用实际导出的完整文件。</p>
           <div className="button-group">
             <button
               type="button"

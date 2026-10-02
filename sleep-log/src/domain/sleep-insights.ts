@@ -13,6 +13,8 @@ export interface InsightDistribution<Band extends string = string> {
   counts: Record<Band, number>;
   /** Informative responses only; 'unknown' is counted in counts but excluded here. */
   sampleCount: number;
+  /** Explicit 'unknown' responses; these are answers, but not informative responses. */
+  unknownCount: number;
   missingCount: number;
 }
 export interface InsightScore {
@@ -50,6 +52,9 @@ export interface SleepInsights {
   completeness: {
     excludedGroups: number;
     excludedSegments: number;
+    /** Malformed groups with no usable timestamp; global, not assigned to a date window. */
+    undatedGroups: number;
+    undatedSegments: number;
     nightsWithoutReflection: number;
     nightsWithReflection: number;
   };
@@ -98,12 +103,16 @@ function recordedMinutes(segments: SleepSegment[]): number {
 }
 
 function distribution<Band extends string>(bands: readonly Band[]): InsightDistribution<Band> {
-  return { counts: Object.fromEntries(bands.map((band) => [band, 0])) as Record<Band, number>, sampleCount: 0, missingCount: 0 };
+  return {
+    counts: Object.fromEntries(bands.map((band) => [band, 0])) as Record<Band, number>,
+    sampleCount: 0, unknownCount: 0, missingCount: 0,
+  };
 }
 function addBand<Band extends string>(target: InsightDistribution<Band>, value: Band | null | undefined) {
   if (!value) { target.missingCount++; return; }
   target.counts[value] = (target.counts[value] ?? 0) + 1;
-  if (value !== 'unknown') target.sampleCount++;
+  if (value === 'unknown') target.unknownCount++;
+  else target.sampleCount++;
 }
 function score(values: Array<number | null>): InsightScore {
   const present = values.filter((value): value is number => value !== null);
@@ -121,7 +130,7 @@ function median(values: number[]): number {
   return sorted.length % 2 ? sorted[middle] : (sorted[middle - 1] + sorted[middle]) / 2;
 }
 
-/** Pure, inclusive local-calendar window: today and the preceding 6 or 29 days. */
+/** Pure, inclusive calendar window and clock times in the supplied analysis timezone. */
 export function buildSleepInsights(segments: SleepSegment[], rangeDays: 7 | 30, today: string, timezone: string): SleepInsights {
   const dateAnchor = Date.parse(`${today}T00:00:00.000Z`);
   const startDate = new Date(dateAnchor - (rangeDays - 1) * DAY_MS).toISOString().slice(0, 10);
@@ -139,6 +148,8 @@ export function buildSleepInsights(segments: SleepSegment[], rangeDays: 7 | 30, 
   let napMinutes = 0;
   let excludedGroups = 0;
   let excludedSegments = 0;
+  let undatedGroups = 0;
+  let undatedSegments = 0;
   const onset = distribution(['under_15', '15_to_30', '30_to_60', 'over_60', 'unknown'] as const);
   const awakening = distribution(['none', 'one_or_two', 'multiple_or_long', 'unknown'] as const);
   const alarm = { yes: 0, no: 0, missingCount: 0 };
@@ -148,12 +159,29 @@ export function buildSleepInsights(segments: SleepSegment[], rangeDays: 7 | 30, 
   let nightsWithoutReflection = 0;
 
   for (const [key, members] of grouped) {
+    // No final wake exists for an active continuation; do not label it invalid.
+    if (members.some((segment) => segment.status === 'active')) continue;
+    const parsedTimestamps = members.flatMap((segment) => [Date.parse(segment.startAt), Date.parse(segment.endAt ?? '')]
+      .filter((value) => Number.isFinite(value)));
+    const inferredTimestamp = parsedTimestamps.length ? Math.max(...parsedTimestamps) : null;
+    if (inferredTimestamp === null) {
+      // Cannot assign this group to a window without inventing a sleep date.
+      undatedGroups++;
+      undatedSegments += members.length;
+      continue;
+    }
+    const date = localParts(new Date(inferredTimestamp).toISOString(), timezone).date;
+    if (date < startDate || date > today) continue;
+    const malformedTimestampSegments = members.filter((segment) =>
+      !Number.isFinite(Date.parse(segment.startAt)) || !Number.isFinite(Date.parse(segment.endAt ?? '')));
+    if (malformedTimestampSegments.length) {
+      excludedGroups++;
+      excludedSegments += malformedTimestampSegments.length;
+      continue;
+    }
     const sorted = [...members].sort((a, b) => Date.parse(a.endAt ?? a.startAt) - Date.parse(b.endAt ?? b.startAt));
     const final = sorted[sorted.length - 1];
-    const lastEnd = final.endAt ?? final.startAt;
-    if (!Number.isFinite(Date.parse(lastEnd))) continue;
-    const date = localParts(lastEnd, final.endTimezone ?? final.startTimezone ?? timezone).date;
-    if (date < startDate || date > today) continue;
+    const lastEnd = final.endAt!;
     const valid = sorted.every((s) => s.status === 'completed' && s.endAt !== null &&
       Number.isFinite(Date.parse(s.startAt)) && Number.isFinite(Date.parse(s.endAt)) &&
       Date.parse(s.endAt) > Date.parse(s.startAt));
@@ -179,13 +207,12 @@ export function buildSleepInsights(segments: SleepSegment[], rangeDays: 7 | 30, 
     const first = [...sorted].sort((a, b) => Date.parse(a.startAt) - Date.parse(b.startAt))[0];
     nights.push({
       groupId: key.slice('night:'.length), date, durationMinutes: minutes,
-      bedtimeMinute: localParts(first.startAt, first.startTimezone ?? timezone).minute,
-      wakeMinute: localParts(lastEnd, final.endTimezone ?? final.startTimezone ?? timezone).minute,
+      bedtimeMinute: localParts(first.startAt, timezone).minute,
+      wakeMinute: localParts(lastEnd, timezone).minute,
     });
     // Each answer is taken at most once per night, from its latest segment with
     // that answer; a later partial reflection must not erase an earlier answer.
     const reflections = sorted.map((s) => s.reflection as InsightReflection | undefined).reverse();
-    if (reflections.every((r) => !r)) nightsWithoutReflection++;
     const field = <K extends keyof InsightReflection>(name: K): InsightReflection[K] | undefined =>
       reflections.find((r) => r?.[name] !== null && r?.[name] !== undefined)?.[name];
     const onsetBand = field('sleepOnsetBand');
@@ -198,6 +225,11 @@ export function buildSleepInsights(segments: SleepSegment[], rangeDays: 7 | 30, 
     else alarm.missingCount++;
     const wake = validScore(field('wakeEnergy'));
     const day = validScore(field('daytimeEnergy'));
+    const onsetAt = field('sleepOnsetAt');
+    if (onsetBand == null && awakeningBand == null && alarmValue !== true && alarmValue !== false &&
+      wake === null && day === null && !(typeof onsetAt === 'string' && Number.isFinite(Date.parse(onsetAt)))) {
+      nightsWithoutReflection++;
+    }
     wakeScores.push(wake);
     dayScores.push(day);
     paired.push({ wake, day, onset: onsetBand, awakening: awakeningBand });
@@ -236,7 +268,7 @@ export function buildSleepInsights(segments: SleepSegment[], rangeDays: 7 | 30, 
       sampleCount: pairedCount,
     });
     else if (lowTogether > 0) messages.push({
-      text: `近期多次记录显示（${window}）：${pairedCount}晚有能量评分及入睡/夜醒回答，其中${lowTogether}/${pairedCount}晚低能量（1～2分）与较慢入睡或多次/较长夜醒同时出现；仅为共同出现的记录。`,
+      text: `${lowTogether === 1 ? '记录显示' : '近期多次记录显示'}（${window}）：${pairedCount}晚有能量评分及入睡/夜醒回答，其中${lowTogether}/${pairedCount}晚低能量（1～2分）与较慢入睡或多次/较长夜醒同时出现；仅为共同出现的记录。`,
       sampleCount: pairedCount,
     });
   }
@@ -252,7 +284,10 @@ export function buildSleepInsights(segments: SleepSegment[], rangeDays: 7 | 30, 
     onset, awakening, alarm,
     wakeEnergy: score(wakeScores), daytimeEnergy: score(dayScores),
     bedtimeRange, wakeTimeRange,
-    completeness: { excludedGroups, excludedSegments, nightsWithoutReflection, nightsWithReflection: nights.length - nightsWithoutReflection },
+    completeness: {
+      excludedGroups, excludedSegments, undatedGroups, undatedSegments,
+      nightsWithoutReflection, nightsWithReflection: nights.length - nightsWithoutReflection,
+    },
     messages,
   };
 }

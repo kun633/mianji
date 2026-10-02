@@ -214,14 +214,14 @@ export function HistoryPage({ segments, today, timezone, actions, plan = null }:
 
         <section className="stats-section" aria-label="睡眠趋势与提示">
           <h2>睡眠趋势与提示</h2>
-          <p className="hint-text">{insights.startDate} 至 {insights.endDate} · {insights.nights.count} 晚有效记录，覆盖 {insights.nights.completedDays} 天；记录时长不是实际睡眠时长。这些提示不是医学诊断。</p>
+          <p className="hint-text">{insights.startDate} 至 {insights.endDate} · {insights.nights.count} 晚有效记录，覆盖 {insights.nights.completedDays} 天；日期和时刻均按当前分析时区 {timezone} 统计。记录时长不是实际睡眠时长。这些提示不是医学诊断。</p>
           <div className="stats-summary-grid">
             <div className="stat-card"><span className="stat-label">夜间平均记录时长</span><strong className="stat-value">{insights.nights.averageDurationMinutes === null ? '未记录' : formatDuration(insights.nights.averageDurationMinutes * 60_000)}</strong></div>
             <div className="stat-card"><span className="stat-label">午睡</span><strong className="stat-value">{insights.naps.count} 次 · {insights.naps.days} 天</strong><span>共 {formatDuration(insights.naps.totalMinutes * 60_000)}</span></div>
             <div className="stat-card"><span className="stat-label">记录时间范围</span><span>开始记录 {insights.bedtimeRange ? `${formatClockMinute(insights.bedtimeRange.startMinute)}–${formatClockMinute(insights.bedtimeRange.endMinute)}（跨度 ${Math.round(insights.bedtimeRange.spanMinutes)} 分）` : '未记录'}</span><span>结束记录 {insights.wakeTimeRange ? `${formatClockMinute(insights.wakeTimeRange.startMinute)}–${formatClockMinute(insights.wakeTimeRange.endMinute)}（跨度 ${Math.round(insights.wakeTimeRange.spanMinutes)} 分）` : '未记录'}</span></div>
           </div>
-          <p className="hint-text">入睡区间（已知 {insights.onset.sampleCount} 晚，未填 {insights.onset.missingCount} 晚）：{Object.entries(insights.onset.counts).map(([key, value]) => `${onsetLabels[key] ?? key} ${value}`).join(' · ') || '暂无'}</p>
-          <p className="hint-text">夜间醒来（已知 {insights.awakening.sampleCount} 晚，未填 {insights.awakening.missingCount} 晚）：{Object.entries(insights.awakening.counts).map(([key, value]) => `${awakeningLabels[key] ?? key} ${value}`).join(' · ') || '暂无'}</p>
+          <p className="hint-text">入睡区间（已知 {insights.onset.sampleCount} 晚，记不清 {insights.onset.unknownCount} 晚，未填写 {insights.onset.missingCount} 晚）：{Object.entries(insights.onset.counts).map(([key, value]) => `${onsetLabels[key] ?? key} ${value}`).join(' · ') || '暂无'}</p>
+          <p className="hint-text">夜间醒来（已知 {insights.awakening.sampleCount} 晚，记不清 {insights.awakening.unknownCount} 晚，未填写 {insights.awakening.missingCount} 晚）：{Object.entries(insights.awakening.counts).map(([key, value]) => `${awakeningLabels[key] ?? key} ${value}`).join(' · ') || '暂无'}</p>
           <p className="hint-text">闹钟：是 {insights.alarm.yes} 晚、否 {insights.alarm.no} 晚、未填 {insights.alarm.missingCount} 晚；醒后精神 {insights.wakeEnergy.sampleCount} 条{insights.wakeEnergy.average === null ? '' : `，均分 ${insights.wakeEnergy.average.toFixed(1)}/5`}；白天精神 {insights.daytimeEnergy.sampleCount} 条{insights.daytimeEnergy.average === null ? '' : `，均分 ${insights.daytimeEnergy.average.toFixed(1)}/5`}。</p>
           <p className="hint-text">{insights.completeness.nightsWithReflection} 晚有补记、{insights.completeness.nightsWithoutReflection} 晚无补记；{insights.completeness.excludedGroups} 组不准确记录未纳入分析。</p>
           <ul aria-label="证据式提示">{insights.messages.map((message, index) => <li key={`${index}-${message.text}`}>{message.text}（样本 {message.sampleCount}）</li>)}</ul>

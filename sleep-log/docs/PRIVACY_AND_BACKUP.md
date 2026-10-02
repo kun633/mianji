@@ -33,7 +33,8 @@
 
 ```json
 {
-  "version": 1,
+  "app": "眠记",
+  "version": 2,
   "exportedAt": "2026-09-03T16:00:00.000Z",
   "segments": [
     {
@@ -51,9 +52,12 @@
       "finishedAt": "2026-09-02T23:00:00.000Z",
       "schemaVersion": 1
     }
-  ]
+  ],
+  "plan": null
 }
 ```
+
+上面的代码块是一个**用于说明当前版本 2 完整结构的虚构示例**，不是你的个人备份，不应用于恢复真实数据。示例的实际可导入性需由应用的 `parseBackup` 校验确认，不能仅因 JSON 语法正确就作保证。实际恢复时请使用应用导出的完整 JSON，不要只复制其中的 `segments`，也不要删除版本 2 文件中的 `app`、`version`、`exportedAt` 或 `plan`。
 
 ### 字段说明：
 - `id`: 睡眠记录唯一 UUID；
@@ -62,6 +66,12 @@
 - `startTimezone` / `endTimezone`: 记录所在时区（如 `Asia/Shanghai`），保证跨时区出差时睡眠时段换算绝对精确；
 - `status`: `active`（进行中）、`completed`（已正常完成）、`uncertain`（标记为存疑）或 `invalid`；
 - `groupId`: 用于关联当日接续睡眠（例如误起撤销或再睡一段）的多段记录组合。
+- `app`: 固定为 `眠记`，用于确认文件属于本应用；
+- `version`: 当前应用导出为 `2`；版本 `2` 的备份包含 `plan`，没有渐进计划时为 `null`；
+- `exportedAt`: 备份导出的 ISO 8601 UTC 时间；
+- `plan`: 当前渐进作息计划，或 `null`。
+
+旧版 `version: 1` 备份仍可读取，其外层字段为 `app`、`version`、`exportedAt`、`segments`，不包含 `plan`。备份格式版本与应用的发布版本（如 1.1.0）不是同一概念。
 
 ### 恢复与冲突消解：
 导入备份文件时，系统会在应用内逐条比对本地与备份中的记录：
