@@ -7,7 +7,7 @@ import { HistoryPage, type HistoryActions } from './HistoryPage';
 import { SettingsPage, type SettingsActions, type SettingsModel } from './SettingsPage';
 import { createBackup, parseBackup } from '../data/backup';
 import { readFileSync } from 'node:fs';
-import { URL } from 'node:url';
+import { resolve } from 'node:path';
 import type { SleepSegment } from '../domain/sleep';
 
 const makeSegment = (overrides: Partial<SleepSegment> = {}): SleepSegment => ({
@@ -672,7 +672,7 @@ describe('SettingsPage', () => {
   });
 
   it('keeps the documented JSON example importable and aligned with the current envelope', () => {
-    const doc = readFileSync(new URL('../../docs/PRIVACY_AND_BACKUP.md', import.meta.url), 'utf8');
+    const doc = readFileSync(resolve(process.cwd(), 'docs/PRIVACY_AND_BACKUP.md'), 'utf8');
     const example = doc.match(/```json\s*([\s\S]*?)```/)?.[1];
     expect(example).toBeDefined();
     const parsed = parseBackup(example!);
